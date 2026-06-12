@@ -75,6 +75,58 @@ export function startOfLocalDay(userTimezone: string, now: Date): Date {
 }
 
 /**
+ * Returns the next future UTC instant at which the user's local clock reads
+ * `hour`:00:00 on the FOLLOWING local calendar day from `now`.
+ *
+ * "Following local day" means: if it is currently 2026-06-12 (local), this
+ * function returns the UTC instant for 2026-06-13 at `hour`:00:00 local —
+ * regardless of what `hour` is and what the current local time is.
+ *
+ * DST-correct: uses the same Intl-based approach as `startOfLocalDay` so
+ * DST transitions (including spring-forward hours that are skipped) are
+ * handled correctly.
+ *
+ * Unknown or invalid tz falls back to 'UTC'.
+ *
+ * @param userTimezone - IANA timezone string (e.g. 'America/Los_Angeles')
+ * @param now          - Current UTC instant (injected for testability)
+ * @param hour         - Target local hour (0–23)
+ */
+export function nextLocalHourInstant(userTimezone: string, now: Date, hour: number): Date {
+  const tz = safeTimezone(userTimezone);
+
+  // Determine the local calendar date that `now` falls on.
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  const localDateString = formatter.format(now); // "YYYY-MM-DD"
+  const [yearStr, monthStr, dayStr] = localDateString.split("-");
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10); // 1-based
+  const day = Number.parseInt(dayStr, 10);
+
+  // Advance by exactly one local calendar day.
+  // Use a Date object to handle month/year roll-overs correctly.
+  const nextDayDate = new Date(Date.UTC(year, month - 1, day + 1));
+  const nextYear = nextDayDate.getUTCFullYear();
+  const nextMonth = nextDayDate.getUTCMonth() + 1; // back to 1-based
+  const nextDay = nextDayDate.getUTCDate();
+
+  // Find the UTC instant where local time = hour:00 on the next local day.
+  // We cannot simply add `hour * 3600s` to local midnight, because DST
+  // transitions within the day (fall-back/spring-forward) alter the offset
+  // between midnight and the target hour.  Instead, we call findLocalHourUtc
+  // which uses the same Intl-based offset derivation as findLocalMidnightUtc
+  // but anchored to noon on the target day (to get the right offset near noon)
+  // and then verified + corrected to land on the exact target local hour.
+  return findLocalHourUtc(tz, nextYear, nextMonth, nextDay, hour);
+}
+
+/**
  * Selects users from `allUsers` whose local hour-of-day right now equals
  * their `digestSendHour` and who have digests enabled.
  *
@@ -256,5 +308,69 @@ function verifyAndCorrectMidnight(
   }
 
   // Fallback: return the original candidate — close enough for daily cap math.
+  return candidate;
+}
+
+/**
+ * Finds the UTC instant corresponding to local `(year, month, day, hour, 0, 0)`
+ * in `tz`. Uses the same offset-derivation approach as `findLocalMidnightUtc`
+ * but anchored at noon on the target day (to avoid straddling a midnight DST
+ * boundary), then refined for the target hour.
+ *
+ * For the fall-back case (two local hours with the same clock value), the
+ * function returns the first occurrence (the earlier UTC instant), which is
+ * the correct semantics for "defer to 9 AM tomorrow" — the user's morning.
+ */
+function findLocalHourUtc(
+  tz: string,
+  year: number,
+  month: number, // 1-based
+  day: number,
+  hour: number,
+): Date {
+  // Use noon UTC on the target date as an anchor — noon is virtually never
+  // ambiguous across DST transitions (no timezone shifts noon by ≥12 hours).
+  const noonUtcMs = Date.UTC(year, month - 1, day, 12, 0, 0, 0);
+  const noonUtc = new Date(noonUtcMs);
+
+  // Derive the UTC offset (local - UTC) at noon on this date.
+  const offsetMsAtNoon = getOffsetMsAtInstant(tz, noonUtc);
+
+  // Candidate: the UTC time corresponding to local (year, month, day, hour, 0, 0)
+  // assuming the noon-derived offset.
+  const localTargetMs = Date.UTC(year, month - 1, day, hour, 0, 0, 0);
+  const candidateMs = localTargetMs - offsetMsAtNoon;
+  const candidate = new Date(candidateMs);
+
+  // Verify: check that `candidate` actually resolves to the target local hour/date.
+  // If the target hour straddles a DST transition, the offset at `hour` may
+  // differ from the offset at noon — correct by trying ±1h / ±2h.
+  const localParts = getDateTimeParts(tz, candidate);
+  if (
+    localParts.year === year &&
+    localParts.month === month &&
+    localParts.day === day &&
+    localParts.hour === hour &&
+    localParts.minute === 0
+  ) {
+    return candidate;
+  }
+
+  for (const deltaHours of [-1, 1, -2, 2]) {
+    const adjusted = new Date(candidate.getTime() + deltaHours * 60 * 60 * 1000);
+    const p = getDateTimeParts(tz, adjusted);
+    if (
+      p.year === year &&
+      p.month === month &&
+      p.day === day &&
+      p.hour === hour &&
+      p.minute === 0
+    ) {
+      return adjusted;
+    }
+  }
+
+  // Fallback: return the noon-derived candidate. For spring-forward gaps (when
+  // the target hour doesn't exist locally), this is the closest approximation.
   return candidate;
 }

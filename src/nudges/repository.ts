@@ -94,6 +94,21 @@ export interface NudgeRepository {
   }): Promise<{ id: string }>;
 
   /**
+   * Loads a single NudgeCandidate by loop id for re-validation inside send-nudge.
+   * Returns null when the loop does not exist or is no longer in an active status.
+   *
+   * Used by send-nudge to re-check eligibility authoratitively after sweep emission
+   * (sweep is a hint; this check is the unit of correctness per Deliverable #5).
+   */
+  findCandidateById(loopId: string): Promise<NudgeCandidate | null>;
+
+  /**
+   * Loads the owner's verified email address for a given userId.
+   * Used by send-nudge to resolve the To: address from users.email.
+   */
+  findUserEmail(userId: string): Promise<string | null>;
+
+  /**
    * Writes a loop_events row with eventType 'nudged' or 'digest_summarized'.
    */
   writeLoopEvent(input: {
@@ -251,6 +266,51 @@ export class DrizzleNudgeRepository implements NudgeRepository {
       eventType: input.eventType,
       metadata: input.metadata ?? {},
     });
+  }
+
+  async findCandidateById(loopId: string): Promise<NudgeCandidate | null> {
+    const [row] = await this.db
+      .select({
+        id: loops.id,
+        userId: loops.userId,
+        status: loops.status,
+        createdAt: loops.createdAt,
+        nextCheckAt: loops.nextCheckAt,
+        lastNudgedAt: loops.lastNudgedAt,
+        nudgeCount: loops.nudgeCount,
+        summary: loops.summary,
+        userTimezone: users.timezone,
+      })
+      .from(loops)
+      .innerJoin(users, eq(loops.userId, users.id))
+      .where(eq(loops.id, loopId))
+      .limit(1);
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      userId: row.userId,
+      status: row.status,
+      createdAt: row.createdAt,
+      nextCheckAt: row.nextCheckAt,
+      lastNudgedAt: row.lastNudgedAt,
+      nudgeCount: row.nudgeCount,
+      summary: row.summary,
+      userTimezone: row.userTimezone,
+    };
+  }
+
+  async findUserEmail(userId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    return row?.email ?? null;
   }
 
   async writeAudit(input: {
