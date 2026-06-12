@@ -78,7 +78,7 @@ Keeps is an email-first work memory for open loops. The first behavior should be
 
 Keeps privately extracts loops, nudges the user, and can draft approved actions into connected tools such as Slack and Calendar. It should feel quiet, useful, and work-oriented. The product should not feel like a chatbot that wants attention, and it should not start as a dashboard-first SaaS.
 
-The durable product is a permissioned execution graph. The wedge is private email capture.
+The durable product is a permissioned execution graph. The wedge is private email capture. The end state of the graph is machine-readable as well as human-readable: other AI assistants query Keeps as their organizational memory layer via MCP (Phase 9), which hedges the product against assistant-interface commoditization — if assistants win, they need a context provider, and Keeps is it.
 
 ## Product Principles
 
@@ -1655,6 +1655,73 @@ Mitigation:
 - source evidence permissions
 - team rollups only over shared loops
 
+## Phase 9: Company Graph MCP Server
+
+### Purpose
+
+Expose the permissioned commitment graph to external AI assistants and agents via MCP, making Keeps the organization's memory layer rather than only a nudge interface. This is the hedge against assistant commoditization: Keeps stops competing with Poke-style assistants and starts supplying them.
+
+### User-Facing Outcome
+
+A user (later: a team admin) connects their AI tools — Claude, ChatGPT at work, IDE agents — to their Keeps graph. Those assistants can then answer "what did we promise this customer?", "what's open with this person before my 2pm?", or "what did we decide about pricing in March?" with citations to source evidence, subject to exactly the same permissions the human has granted.
+
+### Prerequisite Assumptions
+
+- Phase 7 team graph and sharing permissions exist (a machine client is modeled as a member with scoped grants).
+- Loops reference first-class entities (people, companies) rather than free-text counterparties — promote entities to their own table no later than Phase 7; earlier is cheap and keeps this phase unblocked.
+- Phase 6 trust controls (retention, deletion, audit) are live.
+
+### Build Scope
+
+MCP server:
+
+- Remote MCP server (streamable HTTP) with OAuth client authorization; mint/revoke per-client connections.
+- Read-only tools first: `search_commitments`, `list_open_loops`, `get_person_brief`, `get_company_brief`, `get_thread_evidence`.
+- Permission enforcement identical to the human-facing surface — no machine-only bypass path.
+- Audit log of every agent query and which loops/evidence it touched.
+- Rate limits per client.
+
+Later (separate decision, not this phase by default):
+
+- Write tools (`create_loop`, `dismiss_loop`, `snooze_loop`) behind the same approval policy as connectors: the external agent proposes, Keeps policy and user approval decide.
+
+### Data And Events
+
+Tables:
+
+- `api_clients` (client id, owner, scopes, status)
+- `graph_query_audit` (client, tool, args hash, loops touched, timestamp)
+
+No new domain tables; the graph itself is the existing loops/entities/evidence model.
+
+### Agent Behavior
+
+The graph answers; it never acts. Every response carries source-evidence references so the downstream assistant can cite where a commitment came from. Unanswerable queries return "not in graph" rather than model speculation.
+
+### UX Surface
+
+- Settings page: connect/revoke AI clients, choose scopes (which loop collections a client may read).
+- Audit view: what each connected client asked and saw.
+
+### Open Design Questions
+
+- MCP auth flavor: OAuth dynamic client registration vs pre-registered clients.
+- Scope granularity for machine clients: per-collection grants vs mirroring per-loop sharing.
+- Whether the MCP server is a paid API tier (pricing the graph separately from the assistant).
+
+### Recommended Defaults
+
+- Read-only at launch; write tools only after pilot demand.
+- Evidence citations mandatory in every tool response.
+- A machine client is a member with scoped grants — one permission model, no parallel system.
+
+### Acceptance Tests
+
+- An external assistant connected over MCP answers a commitments question with correct source citations.
+- The same client cannot read any loop outside its granted scope (verified by test fixture).
+- Revoking a client takes effect immediately; subsequent calls fail authorization.
+- Every query appears in `graph_query_audit`.
+
 ## Build Order Summary
 
 1. Product contract and skeleton.
@@ -1666,8 +1733,9 @@ Mitigation:
 7. Reliability and trust hardening.
 8. Individual-to-team transition.
 9. Pilot packaging.
+10. Company graph MCP server.
 
-If speed matters, Phase 5 and Phase 6 can overlap. Do not start Phase 7 until the individual product shows repeated usage.
+If speed matters, Phase 5 and Phase 6 can overlap. Do not start Phase 7 until the individual product shows repeated usage. Phase 9 (MCP) waits for the team graph and permissions, but its cheap prerequisite — first-class entity rows instead of free-text counterparties — should land by Phase 7 at the latest.
 
 ## Open Questions To Resolve Before Phase 0 Build
 
