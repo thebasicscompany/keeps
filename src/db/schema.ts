@@ -38,6 +38,9 @@ export const auditActionEnum = pgEnum("audit_action", [
   "loop.created",
   "loop.updated",
   "policy.external_action_blocked",
+  "email.activation_sent",
+  "email.activation_suppressed",
+  "email.thread_followed",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -255,6 +258,7 @@ export const pendingInboundEmails = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    activationSentAt: timestamp("activation_sent_at", { withTimezone: true }),
   },
   (table) => ({
     providerMessageIdx: uniqueIndex("pending_inbound_emails_provider_message_unique").on(
@@ -263,6 +267,7 @@ export const pendingInboundEmails = pgTable(
     ),
     senderStatusIdx: index("pending_inbound_emails_sender_status_idx").on(table.senderEmail, table.status),
     expiresAtIdx: index("pending_inbound_emails_expires_at_idx").on(table.expiresAt),
+    senderActivationIdx: index("pending_inbound_sender_activation_idx").on(table.senderEmail, table.activationSentAt),
   }),
 );
 
@@ -382,10 +387,8 @@ export const outboundEmails = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id")
-      .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     nudgeId: uuid("nudge_id")
-      .notNull()
       .references(() => nudges.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     providerMessageId: text("provider_message_id").notNull(),
