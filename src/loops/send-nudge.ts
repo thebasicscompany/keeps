@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { getOptionalEnv } from "@/config/env";
 import { inboundEmails, nudges } from "@/db/schema";
@@ -12,6 +12,8 @@ import { buildNudgeReplyTo, type EmailSender, type OutboundEmail, type SendResul
 export type SendableNudge = {
   id: string;
   userId: string;
+  /** Lifecycle status — `sendNudge` refuses to double-send a nudge already `sent`. */
+  status: string;
   subject: string | null;
   body: string;
   /** Address the reply is sent to — the user who originally wrote in. */
@@ -26,8 +28,14 @@ export interface SendNudgeRepository {
   findSendableNudge(nudgeId: string): Promise<SendableNudge | null>;
 }
 
+export interface PendingNudgeFinder {
+  /** Ids of nudges for this inbound email still awaiting send (status `pending`). */
+  findPendingNudgeIds(inboundEmailId: string): Promise<string[]>;
+}
+
 export type SendNudgeResult =
   | { status: "sent"; nudgeId: string; providerMessageId: string; outbound: OutboundEmail }
+  | { status: "already_sent"; nudgeId: string }
   | { status: "missing_nudge"; nudgeId: string };
 
 const fallbackSubject = "Re: your Keeps loop";
@@ -52,6 +60,10 @@ export async function sendNudge(input: {
 
   if (!nudge) {
     return { status: "missing_nudge", nudgeId: input.nudgeId };
+  }
+
+  if (nudge.status === "sent") {
+    return { status: "already_sent", nudgeId: nudge.id };
   }
 
   const replyToBase = input.replyToBase ?? getOptionalEnv().POSTMARK_REPLY_TO_BASE;
@@ -85,14 +97,24 @@ export async function sendNudge(input: {
  * Drizzle-backed repository: joins the nudge to its source inbound email to recover the
  * recipient address and the provider message id that seeds `In-Reply-To`.
  */
-export class DrizzleSendNudgeRepository implements SendNudgeRepository {
+export class DrizzleSendNudgeRepository implements SendNudgeRepository, PendingNudgeFinder {
   private readonly db = getDb();
+
+  async findPendingNudgeIds(inboundEmailId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: nudges.id })
+      .from(nudges)
+      .where(and(eq(nudges.inboundEmailId, inboundEmailId), eq(nudges.status, "pending")));
+
+    return rows.map((row) => row.id);
+  }
 
   async findSendableNudge(nudgeId: string): Promise<SendableNudge | null> {
     const [row] = await this.db
       .select({
         id: nudges.id,
         userId: nudges.userId,
+        status: nudges.status,
         subject: nudges.subject,
         body: nudges.body,
         inboundEmailId: nudges.inboundEmailId,
@@ -112,6 +134,7 @@ export class DrizzleSendNudgeRepository implements SendNudgeRepository {
     return {
       id: row.id,
       userId: row.userId,
+      status: row.status,
       subject: row.subject,
       body: row.body,
       toEmail: row.senderEmail ?? "",

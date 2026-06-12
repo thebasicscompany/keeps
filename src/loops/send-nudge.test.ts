@@ -37,6 +37,7 @@ function makeRepository(overrides: Partial<SendableNudge> = {}) {
     [nudgeId]: {
       id: nudgeId,
       userId: "user-1",
+      status: "pending",
       subject: "Re: Renewal packet",
       body: "I found 1 loop.\n\n1. Send the renewal packet.",
       toEmail: "arav@example.com",
@@ -60,6 +61,18 @@ describe("sendNudge", () => {
     expect(store.sends[0]?.replyTo).toBe(`agent+n_${nudgeId}@keeps.ai`);
     // Reply-To must NOT ride in the generic headers map — Postmark rejects it there (300).
     expect(store.sends[0]?.headers["Reply-To"]).toBeUndefined();
+  });
+
+  it("refuses to double-send a nudge already marked sent", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const result = await sendNudge({
+      nudgeId,
+      sender: new DevRecordingSender({ store }),
+      repository: makeRepository({ status: "sent" }),
+    });
+
+    expect(result.status).toBe("already_sent");
+    expect(store.sends).toHaveLength(0);
   });
 
   it("records in_reply_to matching the source inbound provider message id", async () => {
