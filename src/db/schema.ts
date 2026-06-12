@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -41,6 +42,14 @@ export const auditActionEnum = pgEnum("audit_action", [
   "email.activation_sent",
   "email.activation_suppressed",
   "email.thread_followed",
+  // Phase 3 additions
+  "nudge.sent",
+  "digest.sent",
+  "approval.requested",
+  "approval.decided",
+  "approval.expired",
+  "approval.executed",
+  "approval.execution_failed",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -80,6 +89,17 @@ export const loopEventTypeEnum = pgEnum("loop_event_type", [
   "snoozed",
   "marked_done",
   "clarification_requested",
+  // Phase 3 additions
+  "nudged",
+  "digest_summarized",
+]);
+
+export const approvalStatusEnum = pgEnum("approval_status", [
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "cancelled",
 ]);
 
 export const nudgeStatusEnum = pgEnum("nudge_status", ["pending", "sent", "skipped"]);
@@ -96,10 +116,18 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    // Phase 3: digest preferences
+    timezone: text("timezone").notNull().default("UTC"),
+    digestEnabled: boolean("digest_enabled").notNull().default(true),
+    digestSendHour: integer("digest_send_hour").notNull().default(8),
   },
   (table) => ({
     emailIdx: uniqueIndex("users_email_unique").on(table.email),
     statusIdx: index("users_status_idx").on(table.status),
+    // Partial index: only digest-enabled users, used by the hourly sweep
+    digestSendHourIdx: index("users_digest_send_hour_idx")
+      .on(table.digestSendHour)
+      .where(sql`digest_enabled`),
   }),
 );
 
@@ -327,11 +355,18 @@ export const loops = pgTable(
     ambiguityFlags: jsonb("ambiguity_flags").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase 3: nudge bookkeeping
+    lastNudgedAt: timestamp("last_nudged_at", { withTimezone: true }),
+    nudgeCount: integer("nudge_count").notNull().default(0),
   },
   (table) => ({
     userStatusIdx: index("loops_user_status_idx").on(table.userId, table.status),
     inboundEmailIdx: index("loops_inbound_email_idx").on(table.inboundEmailId),
     sourceEvidenceIdx: index("loops_source_evidence_idx").on(table.sourceEvidenceId),
+    // Partial index for the nudge sweep eligibility query
+    nextCheckAtIdx: index("loops_next_check_at_idx")
+      .on(table.status, table.nextCheckAt)
+      .where(sql`status IN ('open', 'waiting_on_me', 'waiting_on_other', 'candidate')`),
   }),
 );
 
@@ -413,6 +448,51 @@ export const outboundEmails = pgTable(
   }),
 );
 
+export const drafts = pgTable(
+  "drafts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    actionKind: text("action_kind").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    sourceLoopId: uuid("source_loop_id").references(() => loops.id, { onDelete: "set null" }),
+    requiresLogin: boolean("requires_login").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("drafts_user_idx").on(table.userId),
+    sourceLoopIdx: index("drafts_source_loop_idx").on(table.sourceLoopId),
+  }),
+);
+
+export const approvalRequests = pgTable(
+  "approval_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => drafts.id, { onDelete: "cascade" }),
+    actionKind: text("action_kind").notNull(),
+    status: approvalStatusEnum("status").notNull().default("pending"),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionChannel: text("decision_channel"),
+    decisionMetadata: jsonb("decision_metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("approval_requests_user_status_idx").on(table.userId, table.status),
+    tokenHashIdx: uniqueIndex("approval_requests_token_hash_unique").on(table.tokenHash),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -427,3 +507,9 @@ export type LoopEvent = typeof loopEvents.$inferSelect;
 export type Nudge = typeof nudges.$inferSelect;
 export type OutboundEmail = typeof outboundEmails.$inferSelect;
 export type NewOutboundEmail = typeof outboundEmails.$inferInsert;
+// Phase 3 additions
+export type Draft = typeof drafts.$inferSelect;
+export type NewDraft = typeof drafts.$inferInsert;
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type NewApprovalRequest = typeof approvalRequests.$inferInsert;
+export type ApprovalStatus = typeof approvalStatusEnum.enumValues[number];
