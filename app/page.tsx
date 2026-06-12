@@ -37,12 +37,14 @@ export default async function HomePage() {
           dotRadius={1.5}
           dotSpacing={14}
           bulgeStrength={67}
-          glowRadius={160}
+          // No cursor glow — the dot bulge is the only cursor effect; the SVG
+          // glow circle read as a smudge on the light canvas.
+          glowRadius={0}
           sparkle={false}
           waveAmplitude={0}
           gradientFrom="rgba(20,20,15,0.18)"
           gradientTo="rgba(20,20,15,0.10)"
-          glowColor="rgba(193,245,223,0.55)"
+          glowColor="transparent"
           className="absolute inset-0 h-full w-full"
         />
       </div>
