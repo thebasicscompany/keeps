@@ -1,0 +1,27 @@
+{
+  "type": "user.created",
+  "object": "event",
+  "data": {
+    "id": "user_2created_pending",
+    "object": "user",
+    "primary_email_address_id": "idn_primary_pending",
+    "email_addresses": [
+      {
+        "id": "idn_primary_pending",
+        "object": "email_address",
+        "email_address": "pending@example.com",
+        "verification": {
+          "status": "unverified",
+          "strategy": "email_code"
+        },
+        "linked_to": []
+      }
+    ]
+  },
+  "event_attributes": {
+    "http_request": {
+      "client_ip": "203.0.113.11",
+      "user_agent": "Clerk"
+    }
+  }
+}

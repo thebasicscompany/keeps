@@ -1,0 +1,37 @@
+{
+  "type": "user.updated",
+  "object": "event",
+  "data": {
+    "id": "user_2existing",
+    "object": "user",
+    "primary_email_address_id": "idn_primary_existing",
+    "email_addresses": [
+      {
+        "id": "idn_primary_existing",
+        "object": "email_address",
+        "email_address": "primary@example.com",
+        "verification": {
+          "status": "verified",
+          "strategy": "email_code"
+        },
+        "linked_to": []
+      },
+      {
+        "id": "idn_second_existing",
+        "object": "email_address",
+        "email_address": "second@example.com",
+        "verification": {
+          "status": "verified",
+          "strategy": "email_code"
+        },
+        "linked_to": []
+      }
+    ]
+  },
+  "event_attributes": {
+    "http_request": {
+      "client_ip": "203.0.113.12",
+      "user_agent": "Clerk"
+    }
+  }
+}

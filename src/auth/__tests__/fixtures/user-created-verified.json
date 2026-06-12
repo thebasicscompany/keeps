@@ -1,0 +1,27 @@
+{
+  "type": "user.created",
+  "object": "event",
+  "data": {
+    "id": "user_2created_verified",
+    "object": "user",
+    "primary_email_address_id": "idn_primary_verified",
+    "email_addresses": [
+      {
+        "id": "idn_primary_verified",
+        "object": "email_address",
+        "email_address": "newuser@example.com",
+        "verification": {
+          "status": "verified",
+          "strategy": "email_code"
+        },
+        "linked_to": []
+      }
+    ]
+  },
+  "event_attributes": {
+    "http_request": {
+      "client_ip": "203.0.113.10",
+      "user_agent": "Clerk"
+    }
+  }
+}
