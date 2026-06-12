@@ -1,4 +1,4 @@
-import { DevRecordingSender } from "@/email/outbound";
+import { getEmailSender } from "@/email/sender-factory";
 import { DrizzleLoopProcessingRepository } from "@/loops/repository";
 import { DrizzleReplyTargetStore } from "@/loops/resolve-reply-target";
 import { DrizzleSendNudgeRepository, sendNudge } from "@/loops/send-nudge";
@@ -30,7 +30,7 @@ export const processEmail = inngest.createFunction(
         sendReply: async (nudgeId: string) => {
           await sendNudge({
             nudgeId,
-            sender: new DevRecordingSender(),
+            sender: getEmailSender(),
             repository: new DrizzleSendNudgeRepository(),
           });
         },

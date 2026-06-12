@@ -235,8 +235,8 @@ export async function claimHeldInboundEmailsForUser(options: {
 }
 
 export function buildUnknownSenderReply(senderEmail: string, appUrl: string): InboundReply {
-  const signupUrl = new URL("/", appUrl);
-  signupUrl.searchParams.set("email", senderEmail);
+  const signupUrl = new URL("/sign-up", appUrl);
+  signupUrl.searchParams.set("email_address", senderEmail);
 
   return {
     to: senderEmail,
