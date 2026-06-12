@@ -6,6 +6,7 @@ import {
   type Participant,
 } from "@/agent/schemas";
 import { getKeepsLanguageModel } from "@/agent/model";
+import { classifyEmailIntent } from "@/agent/classify-intent";
 import { findSourceSpan, prepareEmailForExtraction, type ExtractionEmailBody } from "@/email/extraction-body";
 import type { NormalizedEmail } from "@/email/normalize";
 
@@ -241,7 +242,7 @@ function extractLoopsDeterministically(
         : null;
 
   const result = {
-    intent: classifyIntent(body),
+    intent: classifyEmailIntent({ body }).intent,
     emailSummary: body.slice(0, 220) || "Empty email body.",
     loops,
     clarifyingQuestion,
@@ -300,28 +301,6 @@ function buildLoopCandidate(
     },
     ambiguityFlags: [...new Set([...input.ambiguityFlags, ...due.ambiguityFlags])],
   };
-}
-
-function classifyIntent(body: string): LoopExtractionResult["intent"] {
-  const lower = body.trim().toLowerCase();
-
-  if (/^correct\b/.test(lower)) {
-    return "correction";
-  }
-
-  if (/^(confirm|dismiss\s+\d+|remind me\b|mark\s+\d+\s+done)\b/.test(lower)) {
-    return "command";
-  }
-
-  if (/^(approve|approved|yes,?\s+approve)\b/.test(lower)) {
-    return "approval";
-  }
-
-  if (/\?$/.test(lower) && !/(can you|could you|please|need to|waiting on)/i.test(lower)) {
-    return "question";
-  }
-
-  return "capture";
 }
 
 function inferDueDate(

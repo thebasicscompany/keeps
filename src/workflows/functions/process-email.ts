@@ -3,7 +3,7 @@ import { processInboundEmailForLoops } from "@/loops/service";
 import { inngest } from "@/workflows/client";
 
 export const processEmail = inngest.createFunction(
-  { id: "process-email", triggers: { event: "email.received" } },
+  { id: "process-email", triggers: { event: "email.received" }, idempotency: "event.data.inboundEmailId" },
   async ({ event, step }) => {
     const payload = await step.run("validate-email-received-payload", async () => {
       const inboundEmailId = event.data.inboundEmailId as string | undefined;
