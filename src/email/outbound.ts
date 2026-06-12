@@ -34,9 +34,22 @@ export interface EmailSender {
  * Builds the plus-routed Reply-To mailbox a user reply will be addressed to. Postmark
  * strips the `+...` suffix into `MailboxHash`, which the inbound reply resolver matches
  * against `^n_<uuid>$` to find the exact nudge that listed the loops.
+ *
+ * `base` is a full email address (`local@domain`); the nudge hash is plus-routed onto its
+ * local part, so base `abc123@inbound.postmarkapp.com` yields
+ * `abc123+n_<id>@inbound.postmarkapp.com`. This keeps the eventual brand domain a pure env
+ * change (`POSTMARK_REPLY_TO_BASE`) — see the generated-inbound pilot decision (2026-06-12).
  */
-export function buildNudgeReplyTo(nudgeId: string): string {
-  return `agent+n_${nudgeId}@keeps.ai`;
+export function buildNudgeReplyTo(nudgeId: string, base: string): string {
+  const atIndex = base.lastIndexOf("@");
+  if (atIndex === -1) {
+    // Defensive: a base without an "@" is misconfigured; treat the whole thing as the local
+    // part so we still produce a syntactically plus-routed address rather than throwing.
+    return `${base}+n_${nudgeId}`;
+  }
+  const local = base.slice(0, atIndex);
+  const domain = base.slice(atIndex + 1);
+  return `${local}+n_${nudgeId}@${domain}`;
 }
 
 /**

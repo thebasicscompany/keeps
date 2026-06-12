@@ -5,7 +5,7 @@ import { PostmarkSender, PostmarkSendError } from "@/email/postmark-sender";
 const CONFIG = {
   serverToken: "server-token-abc",
   fromAddress: "agent@keeps.ai",
-  replyToDomain: "keeps.ai",
+  replyToBase: "agent@keeps.ai",
   messageStream: "outbound",
 };
 
@@ -86,7 +86,7 @@ describe("PostmarkSender.send", () => {
       subject: "Re: the deck",
       textBody: "You said you'd send the deck Friday.",
       htmlBody: "<p>You said you'd send the deck Friday.</p>",
-      replyTo: buildNudgeReplyTo(nudgeId),
+      replyTo: buildNudgeReplyTo(nudgeId, "agent@keeps.ai"),
       inReplyTo: "<source-message-id@mail.gmail.com>",
       references: "<thread-root@mail.gmail.com> <source-message-id@mail.gmail.com>",
       headers: { "X-Keeps-Kind": "private_reply" },

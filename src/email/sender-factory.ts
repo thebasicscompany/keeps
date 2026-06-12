@@ -19,7 +19,7 @@ export function getEmailSender(): EmailSender {
     return new PostmarkSender({
       serverToken: env.POSTMARK_SERVER_TOKEN,
       fromAddress: env.POSTMARK_FROM_ADDRESS,
-      replyToDomain: env.POSTMARK_REPLY_TO_DOMAIN,
+      replyToBase: env.POSTMARK_REPLY_TO_BASE,
       messageStream: env.POSTMARK_MESSAGE_STREAM,
     });
   }

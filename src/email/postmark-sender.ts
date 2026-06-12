@@ -5,8 +5,12 @@ const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
 export type PostmarkSenderConfig = {
   serverToken: string;
   fromAddress: string;
-  /** Domain the plus-routed `agent+n_<nudgeId>@<domain>` Reply-To is built on (AR-3). */
-  replyToDomain: string;
+  /**
+   * Full reply-to base address (`local@domain`) the plus-routed `local+n_<nudgeId>@domain`
+   * Reply-To is built on (AR-3). The caller plus-routes this via `buildNudgeReplyTo` and
+   * passes the result as `email.replyTo`; the sender forwards it as-is.
+   */
+  replyToBase: string;
   messageStream: string;
 };
 

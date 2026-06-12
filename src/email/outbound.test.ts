@@ -29,7 +29,7 @@ function makeMessage(overrides: Partial<OutboundEmail> = {}): OutboundEmail {
     to: "arav@example.com",
     subject: "Re: your Keeps loop",
     textBody: "I found 1 loop.",
-    replyTo: buildNudgeReplyTo("11111111-1111-1111-1111-111111111111"),
+    replyTo: buildNudgeReplyTo("11111111-1111-1111-1111-111111111111", "agent@keeps.ai"),
     inReplyTo: "<source-message-id@keeps.local>",
     references: "<thread-root@keeps.local>",
     headers: { "X-Keeps-Kind": "private_reply" },
@@ -38,8 +38,14 @@ function makeMessage(overrides: Partial<OutboundEmail> = {}): OutboundEmail {
 }
 
 describe("buildNudgeReplyTo", () => {
-  it("builds a plus-routed mailbox with the n_ prefix", () => {
-    expect(buildNudgeReplyTo("abc-123")).toBe("agent+n_abc-123@keeps.ai");
+  it("builds a plus-routed mailbox with the n_ prefix from the base address", () => {
+    expect(buildNudgeReplyTo("abc-123", "agent@keeps.ai")).toBe("agent+n_abc-123@keeps.ai");
+  });
+
+  it("plus-routes onto the local part of a generated-inbound base address", () => {
+    expect(buildNudgeReplyTo("abc-123", "abc123@inbound.postmarkapp.com")).toBe(
+      "abc123+n_abc-123@inbound.postmarkapp.com",
+    );
   });
 });
 

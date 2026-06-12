@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { getOptionalEnv } from "@/config/env";
 import { inboundEmails, nudges } from "@/db/schema";
 import { buildNudgeReplyTo, type EmailSender, type OutboundEmail, type SendResult } from "@/email/outbound";
 
@@ -41,6 +42,11 @@ export async function sendNudge(input: {
   nudgeId: string;
   sender: EmailSender;
   repository: SendNudgeRepository;
+  /**
+   * Full reply-to base address (`local@domain`) the plus-routed nudge mailbox is built on.
+   * Defaults to `POSTMARK_REPLY_TO_BASE` so the eventual brand domain is a pure env change.
+   */
+  replyToBase?: string;
 }): Promise<SendNudgeResult> {
   const nudge = await input.repository.findSendableNudge(input.nudgeId);
 
@@ -48,7 +54,8 @@ export async function sendNudge(input: {
     return { status: "missing_nudge", nudgeId: input.nudgeId };
   }
 
-  const replyTo = buildNudgeReplyTo(nudge.id);
+  const replyToBase = input.replyToBase ?? getOptionalEnv().POSTMARK_REPLY_TO_BASE;
+  const replyTo = buildNudgeReplyTo(nudge.id, replyToBase);
   const outbound: OutboundEmail = {
     userId: nudge.userId,
     nudgeId: nudge.id,
