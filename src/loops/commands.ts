@@ -1,0 +1,128 @@
+export type LoopReplyCommand =
+  | {
+      type: "confirm";
+      rawText: string;
+    }
+  | {
+      type: "correction";
+      rawText: string;
+      correctionText: string | null;
+    }
+  | {
+      type: "dismiss";
+      rawText: string;
+      loopOrdinal: number;
+    }
+  | {
+      type: "snooze";
+      rawText: string;
+      loopOrdinal: number | null;
+      remindAtText: string;
+      remindAt: Date | null;
+    }
+  | {
+      type: "mark_done";
+      rawText: string;
+      loopOrdinal: number;
+    }
+  | {
+      type: "unknown";
+      rawText: string;
+    };
+
+export function parseLoopReplyCommand(text: string, options: { now?: Date } = {}): LoopReplyCommand {
+  const rawText = text.trim();
+  const normalized = rawText.toLowerCase();
+  const now = options.now ?? new Date();
+
+  if (/^confirm\b/.test(normalized)) {
+    return {
+      type: "confirm",
+      rawText,
+    };
+  }
+
+  if (/^correct\b/.test(normalized)) {
+    const correctionText = rawText.replace(/^correct\b[:\s-]*/i, "").trim();
+
+    return {
+      type: "correction",
+      rawText,
+      correctionText: correctionText || null,
+    };
+  }
+
+  const dismissMatch = normalized.match(/^dismiss\s+(\d+)\b/);
+  if (dismissMatch?.[1]) {
+    return {
+      type: "dismiss",
+      rawText,
+      loopOrdinal: Number.parseInt(dismissMatch[1], 10),
+    };
+  }
+
+  const markDoneMatch = normalized.match(/^mark\s+(\d+)\s+done\b/);
+  if (markDoneMatch?.[1]) {
+    return {
+      type: "mark_done",
+      rawText,
+      loopOrdinal: Number.parseInt(markDoneMatch[1], 10),
+    };
+  }
+
+  const remindMatch = rawText.match(/^remind(?:\s+me)?(?:\s+(\d+))?\s+(.+)$/i);
+  if (remindMatch?.[2]) {
+    const remindAtText = remindMatch[2].trim();
+
+    return {
+      type: "snooze",
+      rawText,
+      loopOrdinal: remindMatch[1] ? Number.parseInt(remindMatch[1], 10) : null,
+      remindAtText,
+      remindAt: resolveReminderDate(remindAtText, now),
+    };
+  }
+
+  return {
+    type: "unknown",
+    rawText,
+  };
+}
+
+function resolveReminderDate(text: string, now: Date): Date | null {
+  const lower = text.toLowerCase();
+
+  if (lower.includes("tomorrow")) {
+    const date = atReminderHour(now);
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date;
+  }
+
+  const weekday = weekdayIndex(lower);
+  if (weekday !== null) {
+    const date = atReminderHour(now);
+    const currentWeekday = date.getUTCDay();
+    let daysUntil = (weekday - currentWeekday + 7) % 7;
+
+    if (daysUntil === 0) {
+      daysUntil = 7;
+    }
+
+    date.setUTCDate(date.getUTCDate() + daysUntil);
+    return date;
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function atReminderHour(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 9));
+}
+
+function weekdayIndex(value: string): number | null {
+  const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const index = weekdays.findIndex((weekday) => value.includes(weekday));
+
+  return index >= 0 ? index : null;
+}
