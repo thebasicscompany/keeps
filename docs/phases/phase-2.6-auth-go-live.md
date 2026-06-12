@@ -1,5 +1,7 @@
 # Phase 2.6: Auth and Go-Live (Clerk + Postmark + Vercel/RDS/Inngest Cloud)
 
+> **Decision update (2026-06-12, domains):** `keeps.ai` is NOT purchased and is not a pilot blocker. Pilot email config: outbound From `keeps@basicsoftware.ai` (Arav's domain — verify in Postmark with DKIM/Return-Path; or a plain `arav@basicsoftware.ai` sender signature for the zero-DNS first test), inbound + Reply-To via Postmark's generated address `<hash>@inbound.postmarkapp.com` (plus-addressing populates MailboxHash there too — no DNS at all). App runs on `*.vercel.app` with a Clerk dev instance. Wave C parameterizes the reply-to base address (`POSTMARK_REPLY_TO_BASE`, replacing `POSTMARK_REPLY_TO_DOMAIN`) so the eventual brand domain is a pure env change. Read this plan's `agent@keeps.ai` references as the configured From/reply-to base.
+
 > **Decision update (2026-06-12):** Neon is replaced by AWS RDS Postgres — Arav already has an SST-provisioned RDS instance and AWS credits. The app deploys to Vercel (unchanged), so the RDS instance must be publicly accessible with TLS enforced (`?sslmode=require` on `DATABASE_URL`) and a strong password; Vercel has no stable egress IPs, so the security group allows 0.0.0.0/0 on 5432 — acceptable for the pilot, revisit (RDS Proxy / private networking) in Phase 6. Cap the postgres.js pool low for serverless (e.g. `max: 5` in `src/db/client.ts`). All "Neon" references below should be read as "RDS".
 
 Status: planned
