@@ -241,7 +241,7 @@ export function buildUnknownSenderReply(senderEmail: string, appUrl: string): In
   return {
     to: senderEmail,
     subject: "Activate Keeps for this email",
-    text: `I can help track this, but I need to verify this email first.\n\nActivate Keeps for ${senderEmail}: ${signupUrl.toString()}`,
+    text: `This address is not yet registered with Keeps.\n\nActivate Keeps for ${senderEmail}: ${signupUrl.toString()}`,
   };
 }
 
