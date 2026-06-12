@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildDigest } from "./build.js";
-import type { DigestLoopInput, DigestUserInput } from "./build.js";
+import { buildDigest } from "@/digests/build";
+import type { DigestLoopInput, DigestUserInput } from "@/digests/build";
 
 // ---- fixtures ---------------------------------------------------------------
 

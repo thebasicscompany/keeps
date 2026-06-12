@@ -15,7 +15,7 @@
  * map is stored in nudges.metadata per AR-3.
  */
 
-import type { DigestModel, DigestEntry } from "./build.js";
+import type { DigestModel, DigestEntry } from "@/digests/build";
 
 export interface RenderOptions {
   /**
