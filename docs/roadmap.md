@@ -50,24 +50,24 @@ Last updated: 2026-06-12
 
 ### Not Yet Done
 
-- [ ] Real Postmark inbound email to `agent@keeps.ai`.
-- [ ] Postmark webhook configured against a public `/api/email/inbound` URL.
-- [ ] DNS/MX setup for `keeps.ai`, unless using Postmark's generated inbound address first.
-- [ ] Cloud Inngest keys configured for deployed workflows.
-- [ ] Live OpenAI extraction with `generateObject`; deterministic fallback is verified.
-- [ ] Outbound private email delivery through Postmark.
-- [ ] Reply-command ingestion from actual email replies.
+- [x] Real Postmark inbound email (via generated inbound address; `agent@keeps.ai` deferred until the brand domain DKIM-verifies). _(go-live 2026-06-12)_
+- [x] Postmark webhook configured against a public `/api/email/inbound` URL (`https://keeps-ivory.vercel.app`).
+- [x] DNS/MX setup for `keeps.ai` — satisfied via Postmark's generated inbound address; custom domain MX still pending for branded addressing.
+- [x] Cloud Inngest keys configured for deployed workflows.
+- [x] Live OpenAI extraction with `generateObject`; deterministic fallback is verified. _(strict-schema fix `77717a3`; verified live against gpt-5.1)_
+- [x] Outbound private email delivery through Postmark.
+- [x] Reply-command ingestion from actual email replies (`dismiss 1` → loop dismissed, confirmation sent).
 - [ ] Phase 3 nudges, digests, and approval waits.
 - [ ] Slack and Google Calendar connectors.
 
 ### External Setup Needed Next
 
-- [ ] `POSTMARK_SERVER_TOKEN`
-- [ ] Public app URL for Postmark and Inngest callbacks
-- [ ] Postmark inbound stream/domain or generated inbound address
-- [ ] `KEEPS_INBOUND_WEBHOOK_SECRET` value configured as Postmark custom header
-- [ ] `INNGEST_EVENT_KEY`
-- [ ] `INNGEST_SIGNING_KEY`
+- [x] `POSTMARK_SERVER_TOKEN`
+- [x] Public app URL for Postmark and Inngest callbacks (`https://keeps-ivory.vercel.app`)
+- [x] Postmark inbound stream/domain or generated inbound address (generated address in use)
+- [x] `KEEPS_INBOUND_WEBHOOK_SECRET` — configured as the basic-auth **password** in the Postmark webhook URL (Postmark's UI has no custom-header field; route accepts either `x-keeps-webhook-secret` or basic-auth password)
+- [x] `INNGEST_EVENT_KEY`
+- [x] `INNGEST_SIGNING_KEY`
 - [ ] `OPENAI_API_KEY` when testing live model extraction
 
 ## Working Thesis

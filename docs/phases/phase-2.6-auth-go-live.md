@@ -272,11 +272,31 @@ If any of steps 4–7 fails, the phase is not done; debug and re-run from the fa
 
 ## Exit Criteria
 
-- [ ] All Wave A tasks merged: dev session module is gone (grep clean), Clerk middleware/provider live, sign-in / sign-up pages render, env schema has Clerk vars, audit-action migration applied.
-- [ ] All Wave B tasks merged: `POST /api/auth/clerk/webhook` verifies Svix signatures, handles `user.created` and `user.updated`, upserts users + identities, triggers `claimHeldInboundEmailsForUser`, and is idempotent on replay.
-- [ ] All Wave C tasks merged: `PostmarkSender` passes its unit-test contract; sender factory returns Postmark in prod and dev recorder otherwise; inbound webhook returns 503 if secret missing in prod, 401 on wrong secret, 413 on oversized body.
-- [ ] Wave D complete: Vercel + RDS + Inngest Cloud + Clerk + Postmark all configured with the documented env matrix.
-- [ ] Wave E smoke checklist passes end to end: real Gmail BCC → loop with model summary → nudge email with correct `Reply-To` and threading headers → `dismiss 1` reply → loop dismissed.
-- [ ] Unknown-sender claim path verified live: BCC from new address → pending row → Clerk sign-up + verify → claim → loop + nudge for the new user.
-- [ ] `pnpm typecheck`, `pnpm test`, `pnpm build` pass on `main`.
-- [ ] `docs/roadmap.md` "Not Yet Done" items related to auth, inbound webhook URL, outbound delivery, and Inngest cloud keys are checked off.
+- [x] All Wave A tasks merged: dev session module is gone (grep clean), Clerk middleware/provider live, sign-in / sign-up pages render, env schema has Clerk vars, audit-action migration applied.
+- [x] All Wave B tasks merged: `POST /api/auth/clerk/webhook` verifies Svix signatures, handles `user.created` and `user.updated`, upserts users + identities, triggers `claimHeldInboundEmailsForUser`, and is idempotent on replay.
+- [x] All Wave C tasks merged: `PostmarkSender` passes its unit-test contract; sender factory returns Postmark in prod and dev recorder otherwise; inbound webhook returns 503 if secret missing in prod, 401 on wrong secret, 413 on oversized body.
+- [x] Wave D complete: Vercel + RDS + Inngest Cloud + Clerk + Postmark all configured with the documented env matrix.
+- [x] Wave E smoke checklist passes end to end: real email → loop with model summary → nudge email with correct `Reply-To` and threading headers → `dismiss 1` reply → loop dismissed.
+- [ ] Unknown-sender claim path verified live: BCC from new address → pending row → Clerk sign-up + verify → claim → loop + nudge for the new user. **(DEFERRED 2026-06-12 — needs a second non-user address; everything it depends on is verified.)**
+- [x] `pnpm typecheck`, `pnpm test`, `pnpm build` pass on `main`.
+- [x] `docs/roadmap.md` "Not Yet Done" items related to auth, inbound webhook URL, outbound delivery, and Inngest cloud keys are checked off.
+
+### Go-live verification — 2026-06-12
+
+Production URL: `https://keeps-ivory.vercel.app` (Vercel project `arav-bhardwajs-projects/keeps`).
+
+Infra provisioned this session:
+- **DB:** dedicated RDS `keeps-prod` (Postgres 17.9, `db.t4g.micro`, 20 GB gp3, default VPC, publicly accessible + `sslmode=require`, SG `sg-047e0078ebfab57e5` open on 5432). Migrations 0000–0004 applied by hand via `psql` (`loop_status`=8, `audit_action`=16 verified). *Created under AWS root creds — make a dedicated IAM user before further AWS work.*
+- **Env:** 14 prod vars set. Inngest keys auto-injected by the Vercel↔Inngest integration. Postmark token reused (not rotated — owner's call).
+
+Smoke evidence (steps 1–6 PASS):
+1. `GET /` 200 (stepper) · no-secret inbound → 401 · valid-secret 11 MB body → 413.
+2. Clerk sign-up `arav@basicsoftware.ai` → `users`(verified) + `user_identities`(clerk) + `auth.clerk_user_created/_email_verified`.
+3. Synthetic Postmark payload → 202 `sender_unknown` → `pending_inbound_emails` row; Inngest accepted the event (event key valid).
+4. Real email → `inbound_emails` + `email.received` → `process-email` → **2 loops** (`open`/`commitment`, conf 0.96/0.90, due-date parsed).
+5. Nudge **sent** via Postmark (`provider_message_id` returned, plus-routed `Reply-To`), landed in inbox.
+6. `dismiss 1` reply → loop `dismissed` + `loop_events.dismissed` + `loop.updated` + confirmation email.
+
+**Two issues found and fixed during go-live (runbook notes):**
+- **Inngest functions weren't registered.** The Vercel↔Inngest integration's auto-sync did not register `process-email` against the live endpoint, so `email.received` events created no runs (silent — event accepted, no invocation). Fixed by an explicit sync to the **stable alias**: `inngest-cli api --prod sync-app keeps --url https://keeps-ivory.vercel.app/api/inngest`. Re-run this after any deploy if runs stop appearing.
+- **Loop extraction 400'd on every model call.** OpenAI strict Structured Outputs (gpt-5.1, `/v1/responses`) rejected `KeepsLoopExtraction` because `loopCandidateSchema`'s five `.default()` fields were emitted as non-required. Fixed in `src/agent/schemas.ts` (commit `77717a3`) — all fields now required, optionality via `.nullable()`. Verified live against the OpenAI API.
