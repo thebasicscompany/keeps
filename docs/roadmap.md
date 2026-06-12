@@ -4,6 +4,8 @@ Drafted: 2026-06-12
 
 Status: active implementation
 
+> **Note (2026-06-12):** Detailed engineering plans for remaining phases live in `docs/phases/` (see `docs/phases/README.md` for binding architecture rulings AR-1..AR-8). Where a phase plan and this roadmap disagree on implementation detail, the phase plan wins. Known supersessions: nudge scheduling uses a cron sweep, not `step.sleepUntil`-per-loop (AR-5); `due_soon`/`overdue` become derived, not stored, statuses (AR-6); auth is Clerk; a Phase 2.5 (pipeline hardening) and Phase 2.6 (auth + go-live) precede Phase 3.
+
 ## Current Status
 
 Last updated: 2026-06-12
