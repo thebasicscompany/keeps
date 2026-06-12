@@ -51,9 +51,11 @@ export function buildCanaryPayload(marker: string) {
 export const pipelineCanary = inngest.createFunction(
   { id: "pipeline-canary", triggers: { cron: "0 13 * * *" }, retries: 0 },
   async ({ step }) => {
-    const marker = `canary-${randomUUID()}`;
-
-    await step.run("post-synthetic-inbound", async () => {
+    // The marker MUST be minted inside the step and read from its memoized return:
+    // Inngest re-executes the whole function body per step, so module-scope or
+    // body-scope randomness diverges between steps (the canary's own first failure).
+    const { marker } = await step.run("post-synthetic-inbound", async () => {
+      const marker = `canary-${randomUUID()}`;
       const env = getEnv();
 
       if (!env.KEEPS_INBOUND_WEBHOOK_SECRET) {
