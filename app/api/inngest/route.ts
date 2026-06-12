@@ -1,8 +1,10 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/workflows/client";
 import { workflowFunctions } from "@/workflows/functions/process-email";
+import { alertOnFunctionFailure } from "@/workflows/functions/alert-on-failure";
+import { pipelineCanary } from "@/workflows/functions/canary";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: workflowFunctions,
+  functions: [...workflowFunctions, alertOnFunctionFailure, pipelineCanary],
 });
