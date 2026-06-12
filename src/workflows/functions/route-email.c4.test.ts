@@ -192,6 +192,9 @@ class InMemoryApprovalRepository implements ApprovalRepository {
   async findApprovalByTokenHash(): Promise<ApprovalRequestWithDraft | null> {
     return null;
   }
+  async updateApprovalTokenHash(): Promise<ApprovalRequest | null> {
+    throw new Error("not used");
+  }
   async updateApprovalDecision(input: {
     id: string;
     status: "approved" | "rejected" | "cancelled" | "expired";

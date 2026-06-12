@@ -29,8 +29,9 @@ import { DrizzleApprovalRepository } from "@/approvals/repository";
 const creamBg = "bg-[#FAFAF8]";
 const cardBg = "bg-white border border-[#E2E2DD] shadow-[0_24px_70px_rgba(20,20,15,0.07)]";
 const labelMuted = "text-[#6F6F66]";
-const terracotta =
-  "h-14 rounded-none border border-[rgba(185,74,31,0.32)] bg-[#F4D0C0] px-6 text-base font-semibold text-[#14140F] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),inset_0_-2px_0_rgba(185,74,31,0.28),0_12px_24px_rgba(185,74,31,0.16)] transition-colors hover:bg-[#EFC0A8] focus-visible:ring-2 focus-visible:ring-[rgba(185,74,31,0.32)] focus-visible:outline-none";
+// Bezeled square seafoam primary — mirrors primaryButtonClass in app/get-started-stepper.tsx.
+const primaryBtn =
+  "h-14 rounded-none border border-[rgba(30,107,79,0.32)] bg-[#C1F5DF] px-6 text-base font-semibold text-[#14140F] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),inset_0_-2px_0_rgba(30,107,79,0.28),0_12px_24px_rgba(30,107,79,0.16)] transition-colors hover:bg-[#AFF0D3] focus-visible:ring-2 focus-visible:ring-[rgba(30,107,79,0.32)] focus-visible:outline-none";
 const secondaryBtn =
   "h-14 rounded-none px-6 text-base font-semibold text-[#6F6F66] transition-colors hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none";
 
@@ -78,7 +79,7 @@ function ErrorScreen({ title, message }: { title: string; message: string }) {
       <section className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col justify-center px-5 py-9 sm:px-0">
         <div className={`rounded-none ${cardBg} p-5 sm:p-6`}>
           <div className="mb-6">
-            <div className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#F4D0C0]">
+            <div className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]">
               <svg
                 aria-hidden="true"
                 className="size-7"
@@ -166,7 +167,7 @@ function ConfirmScreen({
         <div className={`rounded-none ${cardBg} p-5 sm:p-6`}>
           {/* Header */}
           <div className="mb-7">
-            <div className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#F4D0C0]">
+            <div className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]">
               {isApprove ? (
                 <svg
                   aria-hidden="true"
@@ -215,7 +216,7 @@ function ConfirmScreen({
             <form action={`/approvals/${approvalId}/decide`} method="POST">
               <input type="hidden" name="token" value={token} />
               <input type="hidden" name="action" value={mode === "approve" ? "approve" : "cancel"} />
-              <button className={`${terracotta} w-full`} type="submit">
+              <button className={`${primaryBtn} w-full`} type="submit">
                 {isApprove ? "Approve" : "Cancel this action"}
               </button>
             </form>

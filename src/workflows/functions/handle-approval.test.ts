@@ -163,6 +163,14 @@ type StoredNudge = {
 class FakeNudgeRepository implements NudgeRepository {
   readonly nudges: StoredNudge[] = [];
 
+  async findCandidateById(): Promise<null> {
+    return null;
+  }
+
+  async findUserEmail(): Promise<null> {
+    return null;
+  }
+
   async createNudgeRow(input: {
     userId: string;
     loopId: string | null;

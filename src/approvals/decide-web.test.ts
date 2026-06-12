@@ -27,6 +27,10 @@ class InMemoryApprovalRepository implements ApprovalRepository {
   private drafts = new Map<string, Draft>();
   private requests = new Map<string, ApprovalRequest>();
 
+  async updateApprovalTokenHash(): Promise<ApprovalRequest | null> {
+    throw new Error("not used");
+  }
+
   async insertDraft(input: NewDraft): Promise<Draft> {
     const now = new Date();
     const draft: Draft = {

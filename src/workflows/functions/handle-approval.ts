@@ -334,7 +334,9 @@ export async function recordApprovalEmailSent(input: {
 }): Promise<void> {
   await input.store.recordSend({
     id: randomUUID(),
-    userId: null,
+    // The approval email is a user-owned nudge send — attribute the outbound row to
+    // the owner (unlike system sends, which have no user row and record null).
+    userId: input.userId,
     nudgeId: input.nudgeId,
     provider: input.provider,
     providerMessageId: input.providerMessageId,

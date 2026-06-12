@@ -68,6 +68,14 @@ class InMemoryNudgeRepository implements NudgeRepository {
     return [];
   }
 
+  async findCandidateById(): Promise<null> {
+    return null;
+  }
+
+  async findUserEmail(): Promise<null> {
+    return null;
+  }
+
   async countNudgesSentSince(): Promise<number> {
     return 0;
   }
