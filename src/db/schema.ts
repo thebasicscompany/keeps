@@ -26,6 +26,8 @@ export const auditActionEnum = pgEnum("audit_action", [
   "user.email_verified",
   "user.working_style_updated",
   "auth.dev_session_created",
+  "auth.clerk_user_created",
+  "auth.clerk_email_verified",
   "email.inbound.placeholder_received",
   "email.inbound.pending_created",
   "email.inbound.received",

@@ -6,8 +6,15 @@ import { handlePostmarkInboundEmail } from "@/email/inbound";
 import type { InboundCaptureResult } from "@/email/inbound";
 import { sendWorkflowEvent } from "@/workflows/events";
 
+const MAX_INBOUND_BODY_BYTES = 10 * 1024 * 1024;
+
 export async function POST(request: Request) {
   const env = getOptionalEnv();
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isProd && !env.KEEPS_INBOUND_WEBHOOK_SECRET) {
+    return NextResponse.json({ error: "webhook_secret_not_configured" }, { status: 503 });
+  }
 
   if (env.KEEPS_INBOUND_WEBHOOK_SECRET) {
     const provided = request.headers.get("x-keeps-webhook-secret");
@@ -15,6 +22,11 @@ export async function POST(request: Request) {
     if (provided !== env.KEEPS_INBOUND_WEBHOOK_SECRET) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
+  }
+
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_INBOUND_BODY_BYTES) {
+    return NextResponse.json({ error: "payload_too_large" }, { status: 413 });
   }
 
   const payload = await request.json();
