@@ -5,7 +5,7 @@ import { isClerkAPIResponseError } from "@clerk/nextjs/errors";
 import { Archive, ArrowRight, Check, Copy, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CAPTURE_ADDRESS } from "@/product/capture-address";
 import { workingStyles } from "@/product/working-styles";
@@ -66,12 +66,15 @@ function describeClerkError(error: unknown): { message: string; existing: boolea
 
 export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | null }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const clerk = useSignUp();
   const isLoaded = clerk.isLoaded;
 
+  const queryEmail = searchParams.get("email_address") ?? "";
+
   const [step, setStep] = useState<StepId>(sessionEmail ? "capture" : "email");
   const [copied, setCopied] = useState(false);
-  const [email, setEmail] = useState(sessionEmail ?? "");
+  const [email, setEmail] = useState(sessionEmail ?? queryEmail);
 
   // Inline sign-up state.
   const [code, setCode] = useState("");

@@ -141,7 +141,7 @@ describe("handlePostmarkInboundEmail", () => {
     expect(repository.inboundCount()).toBe(0);
     expect(result.reply.text).toContain("Activate Keeps for arav@example.com");
     expect(result.reply.text).toContain(
-      "http://localhost:3000/sign-up?email_address=arav%40example.com",
+      "http://localhost:3000/?email_address=arav%40example.com",
     );
     expect(events).toMatchObject([
       {
