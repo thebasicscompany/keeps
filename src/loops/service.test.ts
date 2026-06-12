@@ -9,6 +9,7 @@ import {
   type LoopToPersist,
   type PersistedLoop,
   type PersistedNudge,
+  type PrivateReplyNudgeMetadata,
   type ProcessableInboundEmail,
 } from "@/loops/service";
 import { parseLoopReplyCommand } from "@/loops/commands";
@@ -43,6 +44,14 @@ describe("processInboundEmailForLoops", () => {
       "loops.extracted",
       ...result.loops.map(() => "loop.created"),
     ]);
+
+    const metadata = repository.nudgeMetadata.get(result.nudgeId);
+    expect(metadata?.kind).toBe("private_reply");
+    expect(metadata?.loopCount).toBe(result.loops.length);
+    // ordinalMap is keyed by 1-based position in the reply body and maps to the listed loop ids.
+    expect(metadata?.ordinalMap).toEqual(
+      Object.fromEntries(result.loops.map((loop, index) => [index + 1, loop.id])),
+    );
   });
 
   it("stores a low-confidence candidate and asks a clarification question", async () => {
@@ -178,6 +187,7 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
   private readonly emails = new Map<string, ProcessableInboundEmail>();
   private readonly loops = new Map<string, PersistedLoop>();
   private readonly nudges = new Map<string, PersistedNudge>();
+  readonly nudgeMetadata = new Map<string, PrivateReplyNudgeMetadata>();
   private nextId = 1;
 
   addEmail(email: ProcessableInboundEmail) {
@@ -246,7 +256,7 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
     inboundEmailId: string;
     subject: string;
     body: string;
-    metadata: Record<string, unknown>;
+    metadata: PrivateReplyNudgeMetadata;
   }): Promise<PersistedNudge> {
     const nudge: PersistedNudge = {
       id: this.allocateId("nudge"),
@@ -256,6 +266,7 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
     };
 
     this.nudges.set(nudge.id, nudge);
+    this.nudgeMetadata.set(nudge.id, input.metadata);
     return nudge;
   }
 

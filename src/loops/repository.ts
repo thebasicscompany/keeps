@@ -15,6 +15,7 @@ import type {
   LoopToPersist,
   PersistedLoop,
   PersistedNudge,
+  PrivateReplyNudgeMetadata,
   ProcessableInboundEmail,
 } from "@/loops/service";
 
@@ -162,7 +163,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     inboundEmailId: string;
     subject: string;
     body: string;
-    metadata: Record<string, unknown>;
+    metadata: PrivateReplyNudgeMetadata;
   }): Promise<PersistedNudge> {
     const [nudge] = await this.db
       .insert(nudges)

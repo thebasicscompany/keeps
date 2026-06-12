@@ -39,6 +39,15 @@ export type PersistedNudge = {
   body: string;
 };
 
+export type PrivateReplyNudgeMetadata = {
+  kind: "private_reply";
+  intent: string;
+  loopCount: number;
+  lowConfidence: boolean;
+  /** 1-based ordinal (as listed in the reply body) → loop id. */
+  ordinalMap: Record<number, string>;
+};
+
 export type LoopProcessingRepository = {
   findInboundEmailById(inboundEmailId: string): Promise<ProcessableInboundEmail | null>;
   persistExtractedLoops(input: {
@@ -51,7 +60,7 @@ export type LoopProcessingRepository = {
     inboundEmailId: string;
     subject: string;
     body: string;
-    metadata: Record<string, unknown>;
+    metadata: PrivateReplyNudgeMetadata;
   }): Promise<PersistedNudge>;
   listCommandableLoops(input: { userId: string; emailThreadId?: string | null }): Promise<PersistedLoop[]>;
   updateLoopFromCommand(input: {
@@ -160,18 +169,21 @@ export async function processInboundEmailForLoops(input: {
       confidence: loop.confidence,
     })),
   });
+  const lowConfidence = loopsToPersist.length > 0 && loopsToPersist.every((loop) => loop.confidence < highConfidenceLoopThreshold);
   const nudge = await input.repository.createPrivateReplyNudge({
     userId: email.userId,
     inboundEmailId: email.id,
     subject: replySubject(email.normalized.subject),
     body: privateReply,
     metadata: {
+      kind: "private_reply",
       intent: extraction.intent,
       loopCount: persistedLoops.length,
-      lowConfidence: loopsToPersist.length > 0 && loopsToPersist.every((loop) => loop.confidence < highConfidenceLoopThreshold),
+      lowConfidence,
+      // 1-based ordinal → loop id, ordered exactly as the loops are listed in the reply body.
+      ordinalMap: Object.fromEntries(persistedLoops.map((loop, index) => [index + 1, loop.id])),
     },
   });
-  const lowConfidence = loopsToPersist.length > 0 && loopsToPersist.every((loop) => loop.confidence < highConfidenceLoopThreshold);
   const events: Phase2WorkflowEvent[] = [
     {
       name: "email.classified",
