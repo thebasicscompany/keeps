@@ -29,3 +29,27 @@ DROP TYPE "loop_status";
 ALTER TYPE "loop_status_v2" RENAME TO "loop_status";
 
 -- outbound_emails added in Wave B
+-- 3. Outbound sender ledger (Deliverable 10 / B1). Keeps the full outbound message —
+-- not just a nudges.status flip — so Phase 2.6 can record Postmark's returned message
+-- id and send-failure metadata on the same row, and reply lookup can index in_reply_to.
+CREATE TABLE "outbound_emails" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "user_id" uuid NOT NULL REFERENCES "users" ("id") ON DELETE CASCADE,
+  "nudge_id" uuid NOT NULL REFERENCES "nudges" ("id") ON DELETE CASCADE,
+  "provider" text NOT NULL,
+  "provider_message_id" text NOT NULL,
+  "to_email" text NOT NULL,
+  "subject" text NOT NULL DEFAULT '',
+  "text_body" text NOT NULL DEFAULT '',
+  "headers" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "reply_to" text,
+  "in_reply_to" text,
+  "references_header" text,
+  "mailbox_hash" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX "outbound_emails_provider_message_unique"
+  ON "outbound_emails" ("provider", "provider_message_id");
+CREATE INDEX "outbound_emails_user_idx" ON "outbound_emails" ("user_id");
+CREATE INDEX "outbound_emails_nudge_idx" ON "outbound_emails" ("nudge_id");
+CREATE INDEX "outbound_emails_in_reply_to_idx" ON "outbound_emails" ("in_reply_to");

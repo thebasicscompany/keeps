@@ -1,4 +1,6 @@
+import { DevRecordingSender } from "@/email/outbound";
 import { DrizzleLoopProcessingRepository } from "@/loops/repository";
+import { DrizzleSendNudgeRepository, sendNudge } from "@/loops/send-nudge";
 import { processInboundEmailForLoops } from "@/loops/service";
 import { inngest } from "@/workflows/client";
 
@@ -27,6 +29,16 @@ export const processEmail = inngest.createFunction(
         useModel: true,
       });
     });
+
+    if (result.status === "processed") {
+      await step.run("send-private-reply", async () => {
+        return sendNudge({
+          nudgeId: result.nudgeId,
+          sender: new DevRecordingSender(),
+          repository: new DrizzleSendNudgeRepository(),
+        });
+      });
+    }
 
     for (const [index, phaseEvent] of result.events.entries()) {
       await step.sendEvent(`emit-${phaseEvent.name}-${index}`, phaseEvent);

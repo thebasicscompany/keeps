@@ -375,6 +375,39 @@ export const nudges = pgTable(
   }),
 );
 
+export const outboundEmails = pgTable(
+  "outbound_emails",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nudgeId: uuid("nudge_id")
+      .notNull()
+      .references(() => nudges.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerMessageId: text("provider_message_id").notNull(),
+    toEmail: text("to_email").notNull(),
+    subject: text("subject").notNull().default(""),
+    textBody: text("text_body").notNull().default(""),
+    headers: jsonb("headers").notNull().default({}),
+    replyTo: text("reply_to"),
+    inReplyTo: text("in_reply_to"),
+    referencesHeader: text("references_header"),
+    mailboxHash: text("mailbox_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    providerMessageIdx: uniqueIndex("outbound_emails_provider_message_unique").on(
+      table.provider,
+      table.providerMessageId,
+    ),
+    userIdx: index("outbound_emails_user_idx").on(table.userId),
+    nudgeIdx: index("outbound_emails_nudge_idx").on(table.nudgeId),
+    inReplyToIdx: index("outbound_emails_in_reply_to_idx").on(table.inReplyTo),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -387,3 +420,5 @@ export type SourceEvidence = typeof sourceEvidence.$inferSelect;
 export type Loop = typeof loops.$inferSelect;
 export type LoopEvent = typeof loopEvents.$inferSelect;
 export type Nudge = typeof nudges.$inferSelect;
+export type OutboundEmail = typeof outboundEmails.$inferSelect;
+export type NewOutboundEmail = typeof outboundEmails.$inferInsert;
