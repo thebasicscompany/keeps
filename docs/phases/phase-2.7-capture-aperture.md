@@ -1,6 +1,6 @@
 # Phase 2.7: Capture Aperture & Onboarding Repair
 
-Status: planned
+Status: in_progress (Waves A+B shipped to prod 2026-06-12; Wave C live verification underway)
 Depends on: 2.6
 Roadmap reference: `docs/roadmap.md` — "Phase 1: Email Identity And Inbound Capture" (claim flow) and the AR-9 consent-boundary ruling in `docs/phases/README.md`.
 
