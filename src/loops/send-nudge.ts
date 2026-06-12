@@ -2,7 +2,16 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { getOptionalEnv } from "@/config/env";
 import { inboundEmails, nudges } from "@/db/schema";
-import { buildNudgeReplyTo, type EmailSender, type OutboundEmail, type SendResult } from "@/email/outbound";
+import { randomUUID } from "node:crypto";
+import {
+  buildNudgeReplyTo,
+  parseNudgeMailboxHash,
+  DrizzleOutboundEmailStore,
+  type EmailSender,
+  type OutboundEmail,
+  type OutboundEmailStore,
+  type SendResult,
+} from "@/email/outbound";
 
 /**
  * Everything `sendNudge` needs about a nudge to turn it into an outbound email: the
@@ -55,6 +64,9 @@ export async function sendNudge(input: {
    * Defaults to `POSTMARK_REPLY_TO_BASE` so the eventual brand domain is a pure env change.
    */
   replyToBase?: string;
+  /** Persistence for the outbound row + nudge status flip; Drizzle-backed by default. */
+  store?: OutboundEmailStore;
+  now?: () => Date;
 }): Promise<SendNudgeResult> {
   const nudge = await input.repository.findSendableNudge(input.nudgeId);
 
@@ -84,6 +96,29 @@ export async function sendNudge(input: {
   };
 
   const result: SendResult = await input.sender.send(outbound);
+
+  // Persistence is sender-agnostic and lives here: record the outbound row and flip the
+  // nudge to `sent` whatever the transport. (When it lived inside DevRecordingSender,
+  // live Postmark sends were delivered but never recorded — first real send, 2026-06-12.)
+  const store = input.store ?? new DrizzleOutboundEmailStore();
+  const sentAt = (input.now ?? (() => new Date()))();
+
+  await store.recordSend({
+    id: randomUUID(),
+    userId: outbound.userId,
+    nudgeId: outbound.nudgeId,
+    provider: input.sender.provider,
+    providerMessageId: result.providerMessageId,
+    toEmail: outbound.to,
+    subject: outbound.subject,
+    textBody: outbound.textBody,
+    headers: outbound.headers ?? {},
+    replyTo: outbound.replyTo ?? null,
+    inReplyTo: outbound.inReplyTo ?? null,
+    referencesHeader: outbound.references ?? null,
+    mailboxHash: outbound.mailboxHash ?? parseNudgeMailboxHash(outbound.replyTo),
+  });
+  await store.markNudgeSent({ nudgeId: nudge.id, sentAt });
 
   return {
     status: "sent",

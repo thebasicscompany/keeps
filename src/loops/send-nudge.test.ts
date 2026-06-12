@@ -53,7 +53,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     const result = await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository(),
     });
 
@@ -67,7 +68,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     const result = await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository({ status: "sent" }),
     });
 
@@ -79,7 +81,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository(),
     });
 
@@ -93,7 +96,9 @@ describe("sendNudge", () => {
     const sentAt = new Date("2026-06-12T12:00:00.000Z");
     await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store, now: () => sentAt }),
+      sender: new DevRecordingSender(),
+      store,
+      now: () => sentAt,
       repository: makeRepository(),
     });
 
@@ -104,7 +109,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     const result = await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository(),
     });
 
@@ -118,7 +124,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     await sendNudge({
       nudgeId,
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository({ subject: null, sourceProviderMessageId: null, referencesHeader: null }),
     });
 
@@ -131,7 +138,8 @@ describe("sendNudge", () => {
     const store = new InMemoryOutboundEmailStore();
     const result = await sendNudge({
       nudgeId: "00000000-0000-0000-0000-000000000000",
-      sender: new DevRecordingSender({ store }),
+      sender: new DevRecordingSender(),
+      store,
       repository: makeRepository(),
     });
 

@@ -27,6 +27,8 @@ export type OutboundEmail = {
 export type SendResult = { providerMessageId: string };
 
 export interface EmailSender {
+  /** Recorded on the persisted outbound row (e.g. "dev", "postmark"). */
+  readonly provider: string;
   send(email: OutboundEmail): Promise<SendResult>;
 }
 
@@ -132,44 +134,16 @@ export class DrizzleOutboundEmailStore implements OutboundEmailStore {
 }
 
 /**
- * Dev transport: persists the full outbound message into `outbound_emails`, transitions
- * the referenced nudge `pending` → `sent`, and returns a synthetic provider message id.
- * No live Postmark traffic. The live transport (Phase 2.6) implements the same
- * `EmailSender` interface.
+ * Dev transport: a pure no-network sender that returns a synthetic provider message id.
+ * Persistence (outbound row + nudge `pending` → `sent`) is OWNED BY `sendNudge` for every
+ * transport — it lived here originally, which meant live Postmark sends were delivered
+ * but never recorded (found in the first real send, 2026-06-12).
  */
 export class DevRecordingSender implements EmailSender {
   static readonly provider = "dev";
+  readonly provider = DevRecordingSender.provider;
 
-  private readonly store: OutboundEmailStore;
-  private readonly now: () => Date;
-
-  constructor(options: { store?: OutboundEmailStore; now?: () => Date } = {}) {
-    this.store = options.store ?? new DrizzleOutboundEmailStore();
-    this.now = options.now ?? (() => new Date());
-  }
-
-  async send(email: OutboundEmail): Promise<SendResult> {
-    const providerMessageId = `dev-${randomUUID()}@keeps.local`;
-    const sentAt = this.now();
-
-    await this.store.recordSend({
-      id: randomUUID(),
-      userId: email.userId,
-      nudgeId: email.nudgeId,
-      provider: DevRecordingSender.provider,
-      providerMessageId,
-      toEmail: email.to,
-      subject: email.subject,
-      textBody: email.textBody,
-      headers: email.headers ?? {},
-      replyTo: email.replyTo ?? null,
-      inReplyTo: email.inReplyTo ?? null,
-      referencesHeader: email.references ?? null,
-      mailboxHash: email.mailboxHash ?? parseNudgeMailboxHash(email.replyTo),
-    });
-
-    await this.store.markNudgeSent({ nudgeId: email.nudgeId, sentAt });
-
-    return { providerMessageId };
+  async send(_email: OutboundEmail): Promise<SendResult> {
+    return { providerMessageId: `dev-${randomUUID()}@keeps.local` };
   }
 }

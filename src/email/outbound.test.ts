@@ -61,74 +61,14 @@ describe("parseNudgeMailboxHash", () => {
 });
 
 describe("DevRecordingSender", () => {
-  it("returns a synthetic dev provider message id", async () => {
-    const store = new InMemoryOutboundEmailStore();
-    const sender = new DevRecordingSender({ store });
+  // Persistence (outbound row + nudge flip) is sendNudge's job for every transport —
+  // covered in send-nudge.test.ts. The dev sender is a pure no-network transport.
+  it("returns a synthetic dev provider message id and identifies as the dev provider", async () => {
+    const sender = new DevRecordingSender();
 
     const result = await sender.send(makeMessage());
 
+    expect(sender.provider).toBe("dev");
     expect(result.providerMessageId).toMatch(/^dev-[0-9a-f-]+@keeps\.local$/);
-  });
-
-  it("persists the full outbound message into the store", async () => {
-    const store = new InMemoryOutboundEmailStore();
-    const sentAt = new Date("2026-06-12T10:00:00.000Z");
-    const sender = new DevRecordingSender({ store, now: () => sentAt });
-
-    const result = await sender.send(makeMessage());
-
-    expect(store.sends).toHaveLength(1);
-    const [recorded] = store.sends;
-    expect(recorded).toMatchObject({
-      userId: "user-1",
-      nudgeId: "11111111-1111-1111-1111-111111111111",
-      provider: "dev",
-      providerMessageId: result.providerMessageId,
-      toEmail: "arav@example.com",
-      subject: "Re: your Keeps loop",
-      textBody: "I found 1 loop.",
-      replyTo: "agent+n_11111111-1111-1111-1111-111111111111@keeps.ai",
-      inReplyTo: "<source-message-id@keeps.local>",
-      referencesHeader: "<thread-root@keeps.local>",
-      headers: { "X-Keeps-Kind": "private_reply" },
-    });
-  });
-
-  it("derives the mailbox hash from the reply-to when not supplied", async () => {
-    const store = new InMemoryOutboundEmailStore();
-    const sender = new DevRecordingSender({ store });
-
-    await sender.send(makeMessage());
-
-    expect(store.sends[0]?.mailboxHash).toBe("n_11111111-1111-1111-1111-111111111111");
-  });
-
-  it("transitions the referenced nudge to sent with sent_at", async () => {
-    const store = new InMemoryOutboundEmailStore();
-    const sentAt = new Date("2026-06-12T10:00:00.000Z");
-    const sender = new DevRecordingSender({ store, now: () => sentAt });
-
-    await sender.send(makeMessage());
-
-    expect(store.sentNudges).toEqual([
-      { nudgeId: "11111111-1111-1111-1111-111111111111", sentAt },
-    ]);
-  });
-
-  it("records empty headers and null optional fields when omitted", async () => {
-    const store = new InMemoryOutboundEmailStore();
-    const sender = new DevRecordingSender({ store });
-
-    await sender.send(
-      makeMessage({ headers: undefined, replyTo: undefined, inReplyTo: undefined, references: undefined }),
-    );
-
-    expect(store.sends[0]).toMatchObject({
-      headers: {},
-      replyTo: null,
-      inReplyTo: null,
-      referencesHeader: null,
-      mailboxHash: null,
-    });
   });
 });

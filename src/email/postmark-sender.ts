@@ -60,6 +60,7 @@ export class PostmarkSendError extends Error {
  */
 export class PostmarkSender implements EmailSender {
   static readonly provider = "postmark";
+  readonly provider = PostmarkSender.provider;
 
   private readonly config: PostmarkSenderConfig;
 
