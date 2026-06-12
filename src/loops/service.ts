@@ -46,6 +46,21 @@ export type PrivateReplyNudgeMetadata = {
   lowConfidence: boolean;
   /** 1-based ordinal (as listed in the reply body) → loop id. */
   ordinalMap: Record<number, string>;
+  /**
+   * Present only on approval nudges (nudge_type 'approval'): the approval_request id
+   * this nudge requested a decision on. The C4 router dispatches a reply to the
+   * approval handler whenever this is set, REGARDLESS of the classified intent
+   * (nudge-type dispatch precedes intent dispatch — AR-3 gotcha 6). Capture/command/
+   * digest nudges never carry it. Additive + optional so older nudges and every
+   * existing fake remain valid.
+   */
+  approvalId?: string | null;
+  /**
+   * The originating nudge's type, when known ('digest' for digest nudges). Lets the
+   * router treat a digest reply's free-text fallthrough as a capture (AR-9). Optional
+   * so non-digest nudges and pre-C4 fakes are unaffected.
+   */
+  nudgeType?: string;
 };
 
 export type LoopProcessingRepository = {
@@ -95,6 +110,16 @@ export type LoopProcessingRepository = {
    * as a `loop_events.event_type = 'corrected'` row. Real re-extraction is Phase 3.
    */
   recordLoopCorrection(input: { userId: string; loopId: string; commandText: string }): Promise<void>;
+  /**
+   * Returns the user's IANA timezone string (C4 / Deliverable #15). Used to resolve
+   * "snooze N until Monday" replies to 9 AM in the user's local zone. Returns null
+   * when the user has no timezone set; callers then fall back to UTC behavior.
+   *
+   * OPTIONAL on the port so pre-C4 in-memory fakes (which never set a timezone)
+   * remain valid implementations without modification — the router treats a
+   * missing method exactly like a null result (UTC fallback).
+   */
+  findUserTimezone?(userId: string): Promise<string | null>;
 };
 
 export type Phase2WorkflowEvent =
@@ -292,6 +317,13 @@ export async function applyLoopReplyCommand(input: {
   repository: LoopProcessingRepository;
   now?: Date;
   /**
+   * The replying user's IANA timezone. When provided, "snooze N until Monday" /
+   * "remind me tomorrow" resolve to 9 AM in this zone (Deliverable #15). Omitted
+   * or unknown → the legacy UTC reminder behavior, so existing callers are
+   * byte-for-byte unaffected.
+   */
+  timezone?: string;
+  /**
    * Loops the command should operate over, preloaded from the source nudge's
    * `metadata.ordinalMap` (see C2 command branch). When provided, the nudge-scoped
    * list is authoritative and `listCommandableLoops` is skipped entirely, so
@@ -300,7 +332,7 @@ export async function applyLoopReplyCommand(input: {
    */
   loops?: PersistedLoop[];
 }): Promise<ApplyLoopReplyCommandResult> {
-  const command = parseLoopReplyCommand(input.text, { now: input.now });
+  const command = parseLoopReplyCommand(input.text, { now: input.now, timezone: input.timezone });
   const commandableLoops =
     input.loops ??
     (await input.repository.listCommandableLoops({

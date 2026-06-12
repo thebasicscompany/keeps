@@ -142,6 +142,69 @@ export function usersDueAtHour<
   });
 }
 
+/**
+ * Returns the UTC `Date` instant at which the user's local calendar day that
+ * contains `now` reaches the given local hour-of-day.
+ *
+ * For example, `localTimeOnDay('America/Los_Angeles', now, 9)` returns the UTC
+ * instant for 09:00 local on the local date that `now` falls in. An unknown tz
+ * falls back to 'UTC'.
+ */
+export function localTimeOnDay(userTimezone: string, now: Date, hour: number): Date {
+  const startOfDay = startOfLocalDay(userTimezone, now);
+  return new Date(startOfDay.getTime() + hour * 60 * 60 * 1000);
+}
+
+/**
+ * Returns the UTC `Date` instant for the given local hour-of-day on the next
+ * occurrence of `targetWeekday` (0 = Sunday … 6 = Saturday) strictly after the
+ * local day that contains `now`. If today is the target weekday, advances a full
+ * week (matching the prior UTC-only "next weekday" behavior). Unknown tz → UTC.
+ */
+export function nextWeekdayAtLocalHour(
+  userTimezone: string,
+  now: Date,
+  targetWeekday: number,
+  hour: number,
+): Date {
+  const tz = safeTimezone(userTimezone);
+  const startOfDay = startOfLocalDay(tz, now);
+  const currentWeekday = localWeekday(tz, startOfDay);
+
+  let daysUntil = (targetWeekday - currentWeekday + 7) % 7;
+  if (daysUntil === 0) {
+    daysUntil = 7;
+  }
+
+  // Advance whole local days, then re-resolve the local hour on the target day
+  // so DST transitions between now and the target day are accounted for.
+  const approxTargetInstant = new Date(startOfDay.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+  return localTimeOnDay(tz, approxTargetInstant, hour);
+}
+
+/**
+ * Returns the UTC `Date` instant for the given local hour-of-day tomorrow
+ * (the local day after the one containing `now`). Unknown tz → UTC.
+ */
+export function tomorrowAtLocalHour(userTimezone: string, now: Date, hour: number): Date {
+  const tz = safeTimezone(userTimezone);
+  const startOfDay = startOfLocalDay(tz, now);
+  const approxTomorrow = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  return localTimeOnDay(tz, approxTomorrow, hour);
+}
+
+/** 0 = Sunday … 6 = Saturday — the local weekday of `instant` in `tz`. */
+function localWeekday(tz: string, instant: Date): number {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: safeTimezone(tz),
+    weekday: "short",
+  });
+  const label = formatter.format(instant);
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const index = days.indexOf(label);
+  return index >= 0 ? index : instant.getUTCDay();
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

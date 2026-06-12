@@ -17,6 +17,12 @@ export type ResolvableNudge = {
 export type ResolvedReplyTarget = {
   nudgeId: string;
   loops: PersistedLoop[];
+  /**
+   * The resolved nudge's metadata. The C4 router reads `approvalId` (→ approval
+   * handler) and `nudgeType` (→ digest free-text fallthrough) off this. Existing
+   * command/correction branches only use `loops`, so this is additive.
+   */
+  metadata: PrivateReplyNudgeMetadata;
 };
 
 /**
@@ -67,6 +73,7 @@ export async function resolveReplyTarget(
   return {
     nudgeId: nudge.id,
     loops: await loopsInOrdinalOrder(nudge.metadata.ordinalMap, deps.store),
+    metadata: nudge.metadata,
   };
 }
 
@@ -157,6 +164,10 @@ function asPrivateReplyMetadata(value: unknown): PrivateReplyNudgeMetadata {
     loopCount: typeof record.loopCount === "number" ? record.loopCount : Object.keys(ordinalMap).length,
     lowConfidence: record.lowConfidence === true,
     ordinalMap,
+    // Surface the approval/nudge-type discriminators the C4 router dispatches on.
+    // Absent on capture/command nudges → undefined (handled as "not an approval").
+    approvalId: typeof record.approvalId === "string" ? record.approvalId : null,
+    nudgeType: typeof record.nudgeType === "string" ? record.nudgeType : undefined,
   };
 }
 

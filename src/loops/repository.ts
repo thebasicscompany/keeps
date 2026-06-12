@@ -7,6 +7,7 @@ import {
   loops,
   nudges,
   sourceEvidence,
+  users,
 } from "@/db/schema";
 import type { LoopCandidate, LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
@@ -359,6 +360,16 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
       eventType: "corrected",
       commandText: input.commandText,
     });
+  }
+
+  async findUserTimezone(userId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    return row?.timezone ?? null;
   }
 }
 

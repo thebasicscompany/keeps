@@ -76,6 +76,18 @@ export interface ApprovalRepository {
    * carried in the approval.requested event payload (rule 7: tokens never in logs).
    */
   updateApprovalTokenHash(input: { id: string; tokenHash: string }): Promise<ApprovalRequest | null>;
+
+  /**
+   * Merge `patch` into a still-pending approval's `decision_metadata` jsonb WHERE
+   * status = 'pending' (C4 / Deliverable #13 reply-based `edit`). The approval stays
+   * pending — this records the user's edit text without deciding the request. Returns
+   * the updated row, or null if no pending row matched (already decided or not found).
+   *
+   * OPTIONAL on the port so pre-C4 in-memory fakes (e.g. the approvals service-test
+   * repository) remain valid without modification; the email-reply edit path is the
+   * only caller and guards on its presence.
+   */
+  appendDecisionMetadata?(id: string, patch: Record<string, unknown>): Promise<ApprovalRequest | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +205,37 @@ export class DrizzleApprovalRepository implements ApprovalRepository {
           eq(approvalRequests.status, "pending"),
         ),
       )
+      .returning();
+
+    return row ?? null;
+  }
+
+  async appendDecisionMetadata(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<ApprovalRequest | null> {
+    // Load the current row first so we merge into (rather than overwrite) any
+    // existing decision_metadata, mirroring a jsonb || patch merge. The
+    // WHERE status = 'pending' guard keeps this a no-op on already-decided rows.
+    const [existing] = await this.db
+      .select({ decisionMetadata: approvalRequests.decisionMetadata })
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, "pending")))
+      .limit(1);
+
+    if (!existing) {
+      return null;
+    }
+
+    const merged = {
+      ...((existing.decisionMetadata ?? {}) as Record<string, unknown>),
+      ...patch,
+    };
+
+    const [row] = await this.db
+      .update(approvalRequests)
+      .set({ decisionMetadata: merged, updatedAt: new Date() })
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, "pending")))
       .returning();
 
     return row ?? null;

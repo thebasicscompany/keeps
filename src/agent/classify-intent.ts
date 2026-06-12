@@ -26,7 +26,11 @@ export function classifyEmailIntent({ body }: ClassifyEmailIntentInput): Classif
     return { intent: "correction", basis: "rule", matchedRule: "correction-prefix" };
   }
 
-  if (/^(confirm|dismiss\s+\d+|remind me\b|mark\s+\d+\s+done)\b/.test(lower)) {
+  if (
+    /^(confirm|dismiss\s+\d+|remind me\b|mark\s+\d+\s+done|done\s+\d+|snooze\s+\d+)\b/.test(lower)
+  ) {
+    // `done N` and `snooze N` are the digest reply-footer command forms (Deliverable #8/#15).
+    // Like the existing `dismiss N` / `mark N done`, they are unambiguous command prefixes.
     return { intent: "command", basis: "rule", matchedRule: "command-prefix" };
   }
 
@@ -36,6 +40,13 @@ export function classifyEmailIntent({ body }: ClassifyEmailIntentInput): Classif
 
   if (/\?$/.test(lower) && !/(can you|could you|please|need to|waiting on)/i.test(lower)) {
     return { intent: "question", basis: "rule", matchedRule: "trailing-question" };
+  }
+
+  // Insights/status report requests (Deliverable #9). These have no trailing "?",
+  // so they would otherwise fall through to capture. Matched verbatim against the
+  // forms the question handler recognizes: "insights", "status", "what are my open loops".
+  if (/^insights\b/.test(lower) || /^status\b/.test(lower) || /what are my open loops/.test(lower)) {
+    return { intent: "question", basis: "rule", matchedRule: "insights-request" };
   }
 
   return { intent: "capture", basis: "rule", matchedRule: "capture-default" };
