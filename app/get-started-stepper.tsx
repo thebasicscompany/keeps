@@ -84,6 +84,15 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
   const codeInputRef = useRef<HTMLInputElement>(null);
 
+  // Synchronous in-flight guard — prevents parallel Clerk calls when the
+  // auto-submit (6th digit) and Verify button fire in the same event loop tick.
+  // React state (`submitting`) is async and re-renders too late for this.
+  const inFlightRef = useRef(false);
+
+  // The last code value that was auto-submitted via onCodeChange, so we never
+  // fire a second auto-submit for the same value (e.g. re-render after error).
+  const lastAutoSubmitRef = useRef<string>("");
+
   // Resend cooldown ticker.
   useEffect(() => {
     if (cooldown <= 0) {
@@ -119,15 +128,27 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
     window.setTimeout(() => setCopied(false), 1200);
   }
 
+  // Shared success path for both normal verification and "already verified"
+  // recovery. Factored out so submitCode's catch can reuse it without
+  // duplicating the setActive + refresh + setStep sequence.
+  async function completeVerification(sessionId: string | null | undefined) {
+    if (!clerk.isLoaded) return;
+    await clerk.setActive({ session: sessionId });
+    router.refresh();
+    setStep("capture");
+  }
+
   async function startSignUp(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!clerk.isLoaded || submitting) {
+    if (!clerk.isLoaded || inFlightRef.current) {
       return;
     }
+    inFlightRef.current = true;
     const { signUp } = clerk;
 
     const trimmed = email.trim();
     if (!trimmed) {
+      inFlightRef.current = false;
       setError({ message: "Enter your work email to continue.", existing: false });
       return;
     }
@@ -140,23 +161,29 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setEmail(trimmed);
       setCode("");
+      lastAutoSubmitRef.current = "";
       setCooldown(RESEND_COOLDOWN_SECONDS);
       setStep("code");
     } catch (caught) {
       setError(describeClerkError(caught));
     } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   }
 
   async function submitCode(rawCode: string) {
-    if (!clerk.isLoaded || submitting) {
+    // Part 1: synchronous in-flight guard — blocks a second parallel call that
+    // races through before React re-renders the `submitting` state.
+    if (!clerk.isLoaded || inFlightRef.current) {
       return;
     }
-    const { signUp, setActive } = clerk;
+    inFlightRef.current = true;
+    const { signUp } = clerk;
 
     const trimmed = rawCode.trim();
     if (trimmed.length !== 6) {
+      inFlightRef.current = false;
       return;
     }
 
@@ -167,11 +194,9 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
       const attempt = await signUp.attemptEmailAddressVerification({ code: trimmed });
 
       if (attempt.status === "complete") {
-        await setActive({ session: attempt.createdSessionId });
         // The capture/style steps and app/page.tsx read the signed-in session,
         // so refresh router state before advancing in place.
-        router.refresh();
-        setStep("capture");
+        await completeVerification(attempt.createdSessionId);
         return;
       }
 
@@ -181,9 +206,26 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
         existing: false,
       });
     } catch (caught) {
+      // Part 2: recover from "already verified" race. If the first of two
+      // parallel calls already succeeded server-side, Clerk returns
+      // "verification_already_verified". Treat that — or a signUp already
+      // showing complete — as success rather than an error.
+      if (
+        isClerkAPIResponseError(caught) &&
+        caught.errors.some((e) => e.code === "verification_already_verified")
+      ) {
+        await completeVerification(clerk.signUp?.createdSessionId);
+        return;
+      }
+      if (clerk.signUp?.status === "complete") {
+        await completeVerification(clerk.signUp.createdSessionId);
+        return;
+      }
       setError(describeClerkError(caught));
       setCode("");
+      lastAutoSubmitRef.current = "";
     } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   }
@@ -199,15 +241,19 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
     if (error) {
       setError(null);
     }
-    if (digits.length === 6) {
+    // Part 3: only auto-submit if this is a new 6-digit value — prevents a
+    // second auto-submit for the same code on re-render after error clear.
+    if (digits.length === 6 && digits !== lastAutoSubmitRef.current) {
+      lastAutoSubmitRef.current = digits;
       void submitCode(digits);
     }
   }
 
   async function resendCode() {
-    if (!clerk.isLoaded || submitting || cooldown > 0) {
+    if (!clerk.isLoaded || inFlightRef.current || cooldown > 0) {
       return;
     }
+    inFlightRef.current = true;
     const { signUp } = clerk;
     setError(null);
     try {
@@ -215,6 +261,8 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
       setCooldown(RESEND_COOLDOWN_SECONDS);
     } catch (caught) {
       setError(describeClerkError(caught));
+    } finally {
+      inFlightRef.current = false;
     }
   }
 
