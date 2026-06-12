@@ -65,6 +65,17 @@ export interface ApprovalRepository {
    * Used by the expiry sweep (Deliverable #17).
    */
   findPendingExpired(now: Date): Promise<ApprovalRequest[]>;
+
+  /**
+   * Overwrite token_hash on an approval_request WHERE id = input.id AND status = 'pending'.
+   * The WHERE-pending guard means a decided/expired row is never re-tokened.
+   * Returns the updated row on success, or null if no row matched.
+   *
+   * Used by rotateApprovalToken (src/approvals/service.ts): the handle-approval
+   * workflow re-mints the plaintext token here because it is not — and must not be —
+   * carried in the approval.requested event payload (rule 7: tokens never in logs).
+   */
+  updateApprovalTokenHash(input: { id: string; tokenHash: string }): Promise<ApprovalRequest | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,5 +178,23 @@ export class DrizzleApprovalRepository implements ApprovalRepository {
           lte(approvalRequests.expiresAt, now),
         ),
       );
+  }
+
+  async updateApprovalTokenHash(input: {
+    id: string;
+    tokenHash: string;
+  }): Promise<ApprovalRequest | null> {
+    const [row] = await this.db
+      .update(approvalRequests)
+      .set({ tokenHash: input.tokenHash, updatedAt: new Date() })
+      .where(
+        and(
+          eq(approvalRequests.id, input.id),
+          eq(approvalRequests.status, "pending"),
+        ),
+      )
+      .returning();
+
+    return row ?? null;
   }
 }

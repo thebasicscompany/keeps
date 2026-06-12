@@ -86,6 +86,57 @@ export async function createApprovalRequest(
 }
 
 // ---------------------------------------------------------------------------
+// rotateApprovalToken
+// ---------------------------------------------------------------------------
+
+/**
+ * Mints a FRESH plaintext approval token and overwrites token_hash on the
+ * still-pending approval row, returning the new plaintext.
+ *
+ * WHY THIS EXISTS (rule 7 — plaintext tokens never appear in events/logs):
+ * `createApprovalRequest` returns its minted plaintext token to its synchronous
+ * caller and emits `approval.requested` WITHOUT the token (events are persisted
+ * in Inngest Cloud logs — a capturable token there would be a leak). The
+ * `handle-approval` workflow is driven by that event, so it never sees the
+ * original plaintext. Rather than smuggle the token through the event, the
+ * workflow re-mints here: a new token is generated, its hash replaces the old
+ * one (WHERE status='pending'), and the plaintext is handed back for the email
+ * link. The original mint is simply superseded — both hash the same way, so
+ * either token would have verified, but only the rotated plaintext is ever
+ * surfaced to the user (in the email body alone — never an event, audit row,
+ * nudge metadata, or log).
+ *
+ * Returns `null` when the row is not found OR no longer pending (the WHERE-pending
+ * guard matched no row), in which case nothing was changed — a decided/expired
+ * approval cannot have its token rotated.
+ */
+export async function rotateApprovalToken(input: {
+  approvalId: string;
+  repository: ApprovalRepository;
+}): Promise<{ token: string } | null> {
+  const { approvalId, repository } = input;
+
+  const existing = await repository.findApprovalById(approvalId);
+  if (!existing || existing.status !== "pending") {
+    return null;
+  }
+
+  const { token, hash } = mintApprovalToken();
+
+  const rotated = await repository.updateApprovalTokenHash({
+    id: approvalId,
+    tokenHash: hash,
+  });
+
+  if (!rotated) {
+    // Lost the race: decided between our read and write. Nothing changed.
+    return null;
+  }
+
+  return { token };
+}
+
+// ---------------------------------------------------------------------------
 // verifyApprovalToken
 // ---------------------------------------------------------------------------
 

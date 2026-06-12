@@ -112,6 +112,24 @@ class InMemoryApprovalRepository implements ApprovalRepository {
     }
     return result;
   }
+
+  async updateApprovalTokenHash(input: {
+    id: string;
+    tokenHash: string;
+  }): Promise<ApprovalRequest | null> {
+    const existing = this.requests.get(input.id);
+    // WHERE status = 'pending' guard
+    if (!existing || existing.status !== "pending") {
+      return null;
+    }
+    const updated: ApprovalRequest = {
+      ...existing,
+      tokenHash: input.tokenHash,
+      updatedAt: new Date(),
+    };
+    this.requests.set(input.id, updated);
+    return updated;
+  }
 }
 
 // ---------------------------------------------------------------------------
