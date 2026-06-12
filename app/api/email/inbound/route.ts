@@ -4,8 +4,6 @@ import { getOptionalEnv } from "@/config/env";
 import { DrizzleInboundEmailRepository } from "@/email/inbound-repository";
 import { handlePostmarkInboundEmail } from "@/email/inbound";
 import type { InboundCaptureResult } from "@/email/inbound";
-import { DrizzleLoopProcessingRepository } from "@/loops/repository";
-import { processInboundEmailForLoops } from "@/loops/service";
 import { sendWorkflowEvent } from "@/workflows/events";
 
 export async function POST(request: Request) {
@@ -25,13 +23,12 @@ export async function POST(request: Request) {
   }
 
   let result: InboundCaptureResult;
-  const shouldDispatchWorkflow = Boolean(env.INNGEST_EVENT_KEY || env.INNGEST_DEV);
 
   try {
     result = await handlePostmarkInboundEmail(payload, {
       repository: new DrizzleInboundEmailRepository(),
       appUrl: env.NEXT_PUBLIC_APP_URL,
-      sendEvent: shouldDispatchWorkflow ? sendWorkflowEvent : undefined,
+      sendEvent: sendWorkflowEvent,
     });
   } catch (error) {
     if (error instanceof ZodError) {
@@ -41,19 +38,9 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  const localProcessing =
-    !shouldDispatchWorkflow && result.status === "sender_verified"
-      ? await processInboundEmailForLoops({
-          inboundEmailId: result.inboundEmailId,
-          repository: new DrizzleLoopProcessingRepository(),
-          useModel: false,
-        })
-      : null;
-
   return NextResponse.json(
     {
       accepted: true,
-      phase: localProcessing ? 2 : 1,
       status: result.status,
       email: {
         providerMessageId: result.normalized.providerMessageId,
@@ -62,7 +49,6 @@ export async function POST(request: Request) {
         attachmentCount: result.normalized.attachmentCount,
       },
       reply: result.reply,
-      localProcessing,
     },
     { status: 202 },
   );
