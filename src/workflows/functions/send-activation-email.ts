@@ -161,6 +161,7 @@ export async function sendActivationEmailOnly(
       to: reply.to,
       subject: reply.subject,
       textBody: reply.text,
+      htmlBody: reply.html,
     },
     sender: options.sender,
     store: options.store,

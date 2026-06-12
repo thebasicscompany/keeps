@@ -143,6 +143,44 @@ describe("sendSystemEmail", () => {
     expect(store.sends[0]?.replyTo).toBeNull();
     expect(store.sends[0]?.mailboxHash).toBeNull();
   });
+
+  it("passes an optional htmlBody through to the sender", async () => {
+    let capturedHtml: string | undefined;
+    const capturingSender = {
+      provider: "dev" as const,
+      async send(email: Parameters<DevRecordingSender["send"]>[0]) {
+        capturedHtml = email.htmlBody;
+        return { providerMessageId: "dev-html@keeps.local" };
+      },
+    };
+
+    await sendSystemEmail({
+      email: { ...BASE_EMAIL, htmlBody: "<p>Hello</p>" },
+      sender: capturingSender,
+      store: new InMemoryOutboundEmailStore(),
+    });
+
+    expect(capturedHtml).toBe("<p>Hello</p>");
+  });
+
+  it("leaves htmlBody undefined on the sender when not provided", async () => {
+    let capturedHtml: string | undefined = "sentinel";
+    const capturingSender = {
+      provider: "dev" as const,
+      async send(email: Parameters<DevRecordingSender["send"]>[0]) {
+        capturedHtml = email.htmlBody;
+        return { providerMessageId: "dev-nohtml@keeps.local" };
+      },
+    };
+
+    await sendSystemEmail({
+      email: BASE_EMAIL,
+      sender: capturingSender,
+      store: new InMemoryOutboundEmailStore(),
+    });
+
+    expect(capturedHtml).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -191,5 +229,53 @@ describe("PostmarkSender — Auto-Submitted header mapping", () => {
     );
     // Reply-To must not appear — system emails have no plus-routed mailbox.
     expect(body.ReplyTo).toBeUndefined();
+  });
+
+  it("maps htmlBody onto the Postmark HtmlBody field", async () => {
+    const sender = new PostmarkSender({
+      serverToken: "tok",
+      fromAddress: "agent@keeps.ai",
+      replyToBase: "agent@keeps.ai",
+      messageStream: "outbound",
+    });
+
+    await sender.send({
+      userId: null,
+      nudgeId: null,
+      to: "newcomer@example.com",
+      subject: "Welcome",
+      textBody: "Hi",
+      htmlBody: "<p>Hi</p>",
+      headers: { "Auto-Submitted": "auto-replied" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+
+    expect(body.HtmlBody).toBe("<p>Hi</p>");
+    expect(body.TextBody).toBe("Hi");
+  });
+
+  it("omits HtmlBody when no html part is supplied", async () => {
+    const sender = new PostmarkSender({
+      serverToken: "tok",
+      fromAddress: "agent@keeps.ai",
+      replyToBase: "agent@keeps.ai",
+      messageStream: "outbound",
+    });
+
+    await sender.send({
+      userId: null,
+      nudgeId: null,
+      to: "newcomer@example.com",
+      subject: "Welcome",
+      textBody: "Hi",
+      headers: { "Auto-Submitted": "auto-replied" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+
+    expect(body.HtmlBody).toBeUndefined();
   });
 });

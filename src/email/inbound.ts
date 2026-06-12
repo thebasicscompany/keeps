@@ -101,6 +101,13 @@ export type InboundReply = {
   to: string;
   subject: string;
   text: string;
+  /**
+   * Optional HTML part. Only the unknown-sender activation reply sets this — a minimal,
+   * inline-styled, single-column layout with one seafoam "Activate Keeps" button. The
+   * plain-text `text` part is always the canonical content; `html` is an enhancement that
+   * mail clients may render instead.
+   */
+  html?: string;
 };
 
 export type InboundCaptureResult =
@@ -304,12 +311,52 @@ export async function claimHeldInboundEmailsForUser(options: {
 export function buildUnknownSenderReply(senderEmail: string, appUrl: string): InboundReply {
   const signupUrl = new URL("/", appUrl);
   signupUrl.searchParams.set("email_address", senderEmail);
+  const href = signupUrl.toString();
 
   return {
     to: senderEmail,
     subject: "Activate Keeps for this email",
-    text: `This address is not yet registered with Keeps.\n\nActivate Keeps for ${senderEmail}: ${signupUrl.toString()}`,
+    text: `This address is not yet registered with Keeps.\n\nActivate Keeps for ${senderEmail}: ${href}`,
+    html: buildUnknownSenderReplyHtml(senderEmail, href),
   };
+}
+
+/**
+ * Minimal HTML part for the activation reply. Inline styles only (mail clients strip
+ * <style> blocks), a system-font stack (web fonts like Bricolage do not load reliably in
+ * email), a single column capped at ~520px, no images, and one seafoam button-styled link.
+ * The same text content as the plain-text part, which remains canonical.
+ */
+function buildUnknownSenderReplyHtml(senderEmail: string, href: string): string {
+  const safeSender = escapeHtml(senderEmail);
+  const safeHref = escapeHtml(href);
+  const fontStack =
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+  return [
+    `<div style="margin:0;padding:24px;background-color:#FAFAF8;font-family:${fontStack};">`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:520px;margin:0 auto;">`,
+    `<tr><td style="padding:0 0 16px;color:#14140F;font-size:16px;line-height:24px;">`,
+    `This address is not yet registered with Keeps.`,
+    `</td></tr>`,
+    `<tr><td style="padding:0 0 24px;color:#14140F;font-size:16px;line-height:24px;">`,
+    `Activate Keeps for ${safeSender}.`,
+    `</td></tr>`,
+    `<tr><td style="padding:0 0 4px;">`,
+    `<a href="${safeHref}" style="display:inline-block;background-color:#C1F5DF;color:#14140F;border:1px solid rgba(30,107,79,0.4);padding:14px 26px;font-size:16px;font-weight:700;text-decoration:none;border-radius:0;font-family:${fontStack};">Activate Keeps</a>`,
+    `</td></tr>`,
+    `</table>`,
+    `</div>`,
+  ].join("");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function buildKnownSenderReply(senderEmail: string): InboundReply {

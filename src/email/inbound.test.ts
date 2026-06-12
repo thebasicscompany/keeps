@@ -143,6 +143,16 @@ describe("handlePostmarkInboundEmail", () => {
     expect(result.reply.text).toContain(
       "http://localhost:3000/?email_address=arav%40example.com",
     );
+    // HTML part: minimal single button-styled link, inline seafoam styling, same URL.
+    expect(result.reply.html).toBeDefined();
+    expect(result.reply.html).toContain(
+      'href="http://localhost:3000/?email_address=arav%40example.com"',
+    );
+    expect(result.reply.html).toContain(">Activate Keeps</a>");
+    expect(result.reply.html).toContain("#C1F5DF");
+    // No images and no <style> blocks — inline styles only.
+    expect(result.reply.html).not.toContain("<img");
+    expect(result.reply.html).not.toContain("<style");
     expect(events).toMatchObject([
       {
         name: "email.sender_unknown",

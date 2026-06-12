@@ -413,6 +413,30 @@ describe("sendActivationEmailOnly — send-only function", () => {
     expect(sent?.textBody).toContain("stranger@example.com");
     expect(sent?.textBody).toContain(APP_URL);
   });
+
+  it("passes the HTML activation part (one seafoam Activate Keeps button) to the sender", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    let capturedHtml: string | undefined;
+    const capturingSender = {
+      provider: "dev" as const,
+      async send(email: Parameters<DevRecordingSender["send"]>[0]) {
+        capturedHtml = email.htmlBody;
+        return { providerMessageId: "dev-activation-html@keeps.local" };
+      },
+    };
+
+    await sendActivationEmailOnly("stranger@example.com", {
+      sender: capturingSender,
+      store,
+      appUrl: APP_URL,
+      now: NOW,
+    });
+
+    expect(capturedHtml).toBeDefined();
+    expect(capturedHtml).toContain(">Activate Keeps</a>");
+    expect(capturedHtml).toContain("#C1F5DF");
+    expect(capturedHtml).toContain(`${APP_URL}/?email_address=stranger%40example.com`);
+  });
 });
 
 // ---------------------------------------------------------------------------

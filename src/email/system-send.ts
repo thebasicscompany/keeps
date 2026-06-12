@@ -24,6 +24,7 @@ export async function sendSystemEmail(input: {
     to: string;
     subject: string;
     textBody: string;
+    htmlBody?: string;
     inReplyTo?: string;
     references?: string;
   };
@@ -38,6 +39,7 @@ export async function sendSystemEmail(input: {
     to: input.email.to,
     subject: input.email.subject,
     textBody: input.email.textBody,
+    htmlBody: input.email.htmlBody,
     inReplyTo: input.email.inReplyTo,
     references: input.email.references,
     // Reply-To is intentionally absent: replies route to our From address (the inbound
