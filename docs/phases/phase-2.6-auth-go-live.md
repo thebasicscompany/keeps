@@ -1,4 +1,6 @@
-# Phase 2.6: Auth and Go-Live (Clerk + Postmark + Vercel/Neon/Inngest Cloud)
+# Phase 2.6: Auth and Go-Live (Clerk + Postmark + Vercel/RDS/Inngest Cloud)
+
+> **Decision update (2026-06-12):** Neon is replaced by AWS RDS Postgres — Arav already has an SST-provisioned RDS instance and AWS credits. The app deploys to Vercel (unchanged), so the RDS instance must be publicly accessible with TLS enforced (`?sslmode=require` on `DATABASE_URL`) and a strong password; Vercel has no stable egress IPs, so the security group allows 0.0.0.0/0 on 5432 — acceptable for the pilot, revisit (RDS Proxy / private networking) in Phase 6. Cap the postgres.js pool low for serverless (e.g. `max: 5` in `src/db/client.ts`). All "Neon" references below should be read as "RDS".
 
 Status: planned
 Depends on: 2.5
@@ -47,9 +49,9 @@ Phase 2.5 closed the local loop: a single Inngest processing path (AR-1), an int
    - 200-fast: the route does only verify → normalize → persist → emit `email.received` → 202 (per AR-1, already true from 2.5; we re-verify here and assert it in a contract test). No inline loop processing fallback survives.
    - Acceptance: In production, requests without the secret get 401. Requests with a 12+ MB body get 413. The route returns within 1s P95 in production logs after warm-up.
 
-6. **Cloud deployment: Vercel + Neon + Inngest Cloud.**
+6. **Cloud deployment: Vercel + RDS + Inngest Cloud.**
    - Vercel project created from the repo, with the env matrix below set in Production and Preview environments. The Inngest endpoint `/api/inngest` is registered to the Inngest Cloud app via the Vercel integration. The Postmark inbound webhook URL points at `https://<vercel-prod-host>/api/email/inbound` with the shared-secret custom header.
-   - Drizzle migrations are applied to Neon via `pnpm db:migrate` against `DATABASE_URL` once after cutover. CI-driven migrations are out of scope (Phase 6).
+   - Migrations are applied to RDS by hand once after cutover: `psql $DATABASE_URL -f src/db/migrations/000N_*.sql` in order (`pnpm db:migrate` does not work — no drizzle journal, pre-existing). CI-driven migrations are out of scope (Phase 6).
    - Acceptance: A real BCC from a Gmail account to `agent@keeps.ai` produces an `inbound_emails` row in Neon, an `email.received` event visible in Inngest Cloud, a `process-email` run that emits `email.classified` and (for capture) `loops.extracted`, persisted `loops` + `source_evidence` + pending `nudges`, and an outbound private reply that lands in the sender's Gmail inbox with `Reply-To: agent+n_<nudgeId>@keeps.ai`. Replying `dismiss 1` to that nudge resolves the loop's first ordinal.
 
 7. **Live model extraction enabled.**
@@ -168,7 +170,7 @@ This wave is human + agent collaboration. Engineering tasks are bullets; externa
   | Var | Local (`.env.local`) | Preview | Production |
   | --- | --- | --- | --- |
   | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Vercel preview URL | `https://keeps.ai` (or `https://app.keeps.ai`) |
-  | `DATABASE_URL` | Docker Postgres 55433 | Neon branch DB | Neon production DB |
+  | `DATABASE_URL` | Docker Postgres 55433 | RDS `keeps_preview` database (same instance) | RDS `keeps` production database (`?sslmode=require`) |
   | `CLERK_PUBLISHABLE_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dev instance | Clerk dev | Clerk prod instance |
   | `CLERK_SECRET_KEY` | Clerk dev | Clerk dev | Clerk prod |
   | `CLERK_WEBHOOK_SIGNING_SECRET` | dev webhook svix secret | dev | prod webhook svix secret |
@@ -184,9 +186,9 @@ This wave is human + agent collaboration. Engineering tasks are bullets; externa
 
 - Done when: `.env.example` documents every var with a one-line "what it's for" and explicit "leave unset in local" guidance for `INNGEST_EVENT_KEY` and `POSTMARK_SERVER_TOKEN`.
 
-**D2. Run migrations against Neon.**
-- Engineering task: run `DATABASE_URL=<neon-prod-url> pnpm db:migrate`. Verify all enums and tables exist via `psql \dt` and `\dT+`.
-- Done when: a `SELECT 1 FROM users LIMIT 1;` against Neon prod returns without error and migrations table shows all entries through the Wave A audit-action migration.
+**D2. Run migrations against RDS.**
+- Human-first task: make the RDS instance publicly accessible (or confirm it is), enforce TLS, set a strong password, and create the `keeps` database. Engineering task: apply `src/db/migrations/0000–000N` in order via `psql $DATABASE_URL -f ...`. Verify all enums and tables exist via `psql \dt` and `\dT+`.
+- Done when: a `SELECT 1 FROM users LIMIT 1;` against RDS prod returns without error and all migrations through the Wave A audit-action migration have been applied.
 
 **D3. Register `/api/inngest` with Inngest Cloud.**
 - Engineering task: in Inngest Cloud, create an app named `keeps` pointed at `https://<prod-host>/api/inngest`. Inngest will fetch the function manifest. Confirm `process-email` registers.
@@ -248,7 +250,8 @@ If any of steps 4–7 fails, the phase is not done; debug and re-run from the fa
 - **DNS — start with Postmark's generated inbound address.** Recommended default per the task description: do not block go-live on `MX in.keeps.ai → inbound.postmarkapp.com`. Use Postmark's generated `<hash>@inbound.postmarkapp.com` first; forward `agent@keeps.ai` to that address via the registrar's email-forwarding feature, or via a tiny inbound forwarder, depending on what Arav's DNS setup supports cheapest. Cut over to a real `MX in.keeps.ai` once Phase 2.6 is shipped and the address is durable. Outbound DKIM and Return-Path on `keeps.ai` must be set day one or Gmail will spam-fold nudges.
 - **MailboxHash and plus-addressing.** Verified externally that Postmark Inbound splits a `+hash` from the local part into `MailboxHash`. AR-3's `Reply-To: agent+n_<nudgeId>@keeps.ai` will populate `MailboxHash = n_<nudgeId>` on reply. Confirm in E3 with a real reply; if for any reason it does not (e.g., Gmail rewrites the Reply-To), fall back to embedding the nudge ID in the subject as `[n_<id>]` and parsing it server-side. Recommended default: stick with `MailboxHash`; subject fallback is a quick patch if needed.
 - **Webhook idempotency across providers.** Clerk's Svix delivery is at-least-once; the upsert path in B1/B2 handles duplicates. Postmark's inbound is also at-least-once and we already dedupe on `(provider, providerMessageId)`. Two independent sources of replay protection; no new work.
-- **Drizzle migrations against Neon.** Run manually, locally, with `DATABASE_URL` pointing at Neon. CI-driven migrations are not in this phase; track in Phase 6.
+- **Migrations against RDS.** Run manually, locally, with `DATABASE_URL` pointing at RDS (hand-applied SQL via psql; no drizzle journal). CI-driven migrations are not in this phase; track in Phase 6.
+- **Publicly accessible RDS.** Vercel functions have no stable egress IPs, so the security group is open on 5432 with TLS enforced. Mitigations now: strong password, `sslmode=require`, low pool max in `src/db/client.ts`. Revisit with RDS Proxy or Vercel Secure Compute in Phase 6.
 - **`useModel: true` in `process-email`.** Phase 2.5 should have left this true; if not, flip it on as part of D1/D2 verification. Without `OPENAI_API_KEY` the code path falls back to regex — safe default.
 - **Out-of-scope: subdomain routing.** No `arav@keeps.ai` personal aliases. Single inbound address `agent@keeps.ai`.
 
@@ -270,7 +273,7 @@ If any of steps 4–7 fails, the phase is not done; debug and re-run from the fa
 - [ ] All Wave A tasks merged: dev session module is gone (grep clean), Clerk middleware/provider live, sign-in / sign-up pages render, env schema has Clerk vars, audit-action migration applied.
 - [ ] All Wave B tasks merged: `POST /api/auth/clerk/webhook` verifies Svix signatures, handles `user.created` and `user.updated`, upserts users + identities, triggers `claimHeldInboundEmailsForUser`, and is idempotent on replay.
 - [ ] All Wave C tasks merged: `PostmarkSender` passes its unit-test contract; sender factory returns Postmark in prod and dev recorder otherwise; inbound webhook returns 503 if secret missing in prod, 401 on wrong secret, 413 on oversized body.
-- [ ] Wave D complete: Vercel + Neon + Inngest Cloud + Clerk + Postmark all configured with the documented env matrix.
+- [ ] Wave D complete: Vercel + RDS + Inngest Cloud + Clerk + Postmark all configured with the documented env matrix.
 - [ ] Wave E smoke checklist passes end to end: real Gmail BCC → loop with model summary → nudge email with correct `Reply-To` and threading headers → `dismiss 1` reply → loop dismissed.
 - [ ] Unknown-sender claim path verified live: BCC from new address → pending row → Clerk sign-up + verify → claim → loop + nudge for the new user.
 - [ ] `pnpm typecheck`, `pnpm test`, `pnpm build` pass on `main`.

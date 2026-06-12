@@ -4,7 +4,7 @@ Five agent prompts across three sequential engineering waves, plus a human setup
 
 Within a wave, agents run in parallel (same repo, disjoint files). A wave starts only after the previous wave's agents have committed and `pnpm typecheck && pnpm test` passes.
 
-**Repo conventions the plan doesn't know:** `pnpm db:migrate` does not work (no drizzle journal — pre-existing). Migrations are hand-written SQL applied via `docker exec keeps-postgres psql -U postgres -d keeps` locally (container `keeps-postgres`, host port 55433) and via `psql $DATABASE_URL` against Neon at cutover. Tests never touch live Postgres — injectable ports with in-memory fakes.
+**Repo conventions the plan doesn't know:** `pnpm db:migrate` does not work (no drizzle journal — pre-existing). Migrations are hand-written SQL applied via `docker exec keeps-postgres psql -U postgres -d keeps` locally (container `keeps-postgres`, host port 55433) and via `psql $DATABASE_URL` against RDS at cutover. Tests never touch live Postgres — injectable ports with in-memory fakes.
 
 ---
 
@@ -17,7 +17,7 @@ Ordered by lead time. Items 1–3 unblock local rehearsal; 4–6 unblock deploy;
    - **Inbound stream**: note the **generated inbound address** (`<hash>@inbound.postmarkapp.com`). ⚡ **Early real-email test option:** once engineering Waves A–B are merged, you can point this stream's webhook at an `ngrok http 3000` URL (with the `X-Keeps-Webhook-Secret` header) and BCC a real Gmail message to the generated address — that exercises real email end-to-end *before* Vercel, DNS, or `agent@keeps.ai` exist. Same trick validates the `dismiss 1` reply round-trip with real Gmail threading.
    - **Outbound DNS (longest lead time — start day one)**: add the From signature for `agent@keeps.ai` and place the DKIM + Return-Path records at the registrar. Without these, Gmail spam-folds nudges. The `MX in.keeps.ai → inbound.postmarkapp.com` cutover is explicitly deferred (plan: Risks) — go live on the generated address with registrar email-forwarding from `agent@keeps.ai`.
 3. **OpenAI key** (if not already in hand) — `OPENAI_API_KEY` for live extraction; optional locally.
-4. **Neon** — create project + production database. Note `DATABASE_URL`.
+4. **AWS RDS** (replaces Neon — decided 2026-06-12, you have the SST-provisioned instance + credits) — make the instance publicly accessible with TLS enforced and a strong password (Vercel has no stable egress IPs; SG opens 5432 to 0.0.0.0/0 — pilot-acceptable, revisit in Phase 6), create a `keeps` database, note `DATABASE_URL` with `?sslmode=require`.
 5. **Vercel** — create the project from the repo. Set the env matrix from plan §D1 (table in `phase-2.6-auth-go-live.md`) for Production/Preview. Leave `INNGEST_DEV` unset in cloud.
 6. **Inngest Cloud** — create the `keeps` app; note `INNGEST_EVENT_KEY` + `INNGEST_SIGNING_KEY` into Vercel env.
 7. **After first deploy — Clerk webhook**: dashboard → Webhooks → add `https://<prod-host>/api/auth/clerk/webhook`, subscribe `user.created` + `user.updated`, copy the Svix signing secret to Vercel as `CLERK_WEBHOOK_SIGNING_SECRET`.
@@ -118,7 +118,7 @@ You own the whole repo this wave; keep changes minimal and within the plan. When
 Engineering prerequisite: all three waves merged, gates green. Human prerequisite: checklist items 4–8.
 
 1. **Local rehearsal first (no Vercel needed):** `ngrok http 3000` → point Clerk dev-instance webhook at it, complete a real sign-up (validates B1 live). Point the Postmark inbound stream's webhook at the same ngrok URL and BCC a real Gmail message to the **generated inbound address** — real email through the full pipeline before deploying anything. Set `POSTMARK_SERVER_TOKEN` locally for this rehearsal so the nudge actually lands in your Gmail inbox; reply `dismiss 1` and confirm MailboxHash populates and the loop dismisses. This is the cheapest path to the phase goal demo.
-2. **D2** — apply migrations 0000–0004 to Neon by hand: `psql $DATABASE_URL -f src/db/migrations/000N_*.sql` in order (no drizzle journal). Verify with `\dt` and `\dT+`.
+2. **D2** — apply migrations 0000–0004 to RDS by hand: `psql $DATABASE_URL -f src/db/migrations/000N_*.sql` in order (no drizzle journal). Verify with `\dt` and `\dT+`. Also cap the postgres.js pool for serverless (`max: 5` in src/db/client.ts) if not already done in Wave C.
 3. **D3** — register `/api/inngest` with Inngest Cloud; confirm `process-email` appears; fire a manual `email.received` from the dashboard.
 4. **D4/D5** — Clerk + Postmark webhooks pointed at the prod host (human checklist 7–8).
 5. **Wave E smoke** — run the plan's staged go-live checklist (§Testing, steps 1–7) in order, stopping at first failure: deploy green → Clerk sign-up → Postmark test payload → real Gmail BCC → nudge lands threaded → `dismiss 1` resolves → unknown-sender claim path.

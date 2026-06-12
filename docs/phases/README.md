@@ -27,7 +27,7 @@ These were confirmed by Arav on 2026-06-12. Plans must not reopen them.
 2. **Explicit capture (BCC/forward/direct email) is the product**, not a wedge toward full mailbox ingestion. Do not architect for mailbox-scale volume.
 3. **Agent ambition:** single approved actions via OAuth connectors now; user-defined automations under standing permissions later. The approval model must be able to grow into scoped standing grants without a rewrite.
 4. **Auth: Clerk.** Email verification, sessions, and later organizations come from Clerk. The sender-email → user mapping and the claim-held-emails flow key off Clerk-verified email addresses.
-5. **Hosting: Vercel + managed Postgres (Neon assumed), deployed ASAP.** Email provider is Postmark (inbound + outbound). Workflows stay on Inngest (cloud) — it is serverless-friendly and already integrated.
+5. **Hosting: Vercel + managed Postgres (AWS RDS — decided 2026-06-12, replacing the Neon assumption; Arav's SST-provisioned instance + credits), deployed ASAP.** RDS is publicly accessible with TLS enforced for the pilot (Vercel has no stable egress IPs); revisit private networking in Phase 6. Email provider is Postmark (inbound + outbound). Workflows stay on Inngest (cloud) — it is serverless-friendly and already integrated.
 6. **Email is the main UI.** No dashboard habit. Generated expiring views are the only visual surface beyond onboarding/settings.
 
 ## Binding Architecture Rulings
@@ -80,7 +80,7 @@ Task breakdowns should be written so a fresh agent can execute a single task fro
 | Phase | Document | Scope | Depends on |
 |-------|----------|-------|------------|
 | 2.5 | `phase-2.5-pipeline-hardening.md` | Single Inngest path (AR-1), intent router (AR-2), reply-command closure with nudge ordinal metadata + outbound sender interface w/ dev transport (AR-3), workflow idempotency (AR-4), lifecycle-only status enum migration (AR-6) | — |
-| 2.6 | `phase-2.6-auth-go-live.md` | Clerk auth replacing dev stub, claim flow on Clerk-verified email, live Postmark transport (outbound) + inbound stream/DNS, Vercel + Neon + Inngest cloud deployment, webhook hardening | 2.5 |
+| 2.6 | `phase-2.6-auth-go-live.md` | Clerk auth replacing dev stub, claim flow on Clerk-verified email, live Postmark transport (outbound) + inbound stream/DNS, Vercel + RDS + Inngest cloud deployment, webhook hardening | 2.5 |
 | 3 | `phase-3-nudges-digests-approvals.md` | Nudge cron sweep (AR-5), daily digest, approval requests + `waitForEvent`, signed expiring approval links, reply approve/reject/edit | 2.5, 2.6 |
 | 4 | `phase-4-slack-calendar-connectors.md` | Nango setup, Slack + Google Calendar OAuth, `@Slack`/`@Calendar` command parsing, drafts → approval → execute-once, policy `authorize()` evolution (AR-7) | 3 |
 | 5 | `phase-5-generated-insight-views.md` | Generated report records, signed expiring URLs, memo-style report pages with row actions, insight email commands | 3 |

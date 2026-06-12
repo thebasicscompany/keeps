@@ -171,7 +171,7 @@ Use Postgres.
 Likely stack:
 
 - Prisma or Drizzle for schema/migrations.
-- Neon/Supabase/Railway Postgres for early hosted deployment.
+- AWS RDS Postgres for early hosted deployment (decided 2026-06-12 — existing SST-provisioned instance; replaces the earlier Neon/Supabase/Railway shortlist).
 - `pgvector` later only if semantic retrieval becomes necessary.
 
 ### Background Jobs
