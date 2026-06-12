@@ -34,6 +34,16 @@ Design partners cannot onboard organically until the activation email sends — 
 4. **Capture recipes doc + activation copy.**
    Acceptance: `docs/recipes/capture.md` documents, in design-partner-facing language: (a) BCC/forward at write time; (b) CC-once thread following ("CC agent@keeps.email once; the whole thread is covered" — shipped by deliverable 3); (c) the user-owned Gmail filter recipe (filter → auto-forward to the agent address; notes that Gmail's forwarding-confirmation email arrives at our inbound webhook and how to retrieve the confirmation link from the pending row until self-serve surfacing exists); (d) one paragraph on the consent boundary (AR-9) for trust-sensitive workplaces. The activation email copy in `buildUnknownSenderReply` is reviewed against this doc's tone (calm, no marketing).
 
+5. **Onboarding stepper: inline custom sign-up, one thing at a time, mobile-first (added 2026-06-12).**
+   The stepper (`app/get-started-stepper.tsx`) already has the design language (warm cream/terracotta, Tailwind 4). What changes:
+   - **Inline Clerk sign-up via hooks, not the prebuilt form.** The email step no longer redirects to `/sign-up` (Clerk's styled `<SignUp/>` — a jarring style break). Instead the stepper drives Clerk headlessly with `useSignUp`: email submit → `signUp.create({ emailAddress })` + `prepareEmailAddressVerification({ strategy: 'email_code' })` → a new in-stepper **code step** (single input, auto-advance on 6 digits, resend link with cooldown) → `attemptEmailAddressVerification` → `setActive(...)` → continue to the capture step in place. Error states render inline (invalid email, wrong code, rate-limited, email already exists → link to `/sign-in`). The existing `/sign-up/[[...rest]]` route stays as a fallback (deep links from activation emails land there) but the happy path never leaves `/`. `/sign-in` keeps Clerk's prebuilt component — not worth custom work at pilot traffic.
+   - **Fix the capture address.** `captureAddress` is hardcoded `agent@keeps.ai` — a domain we do not own. Replace with a single exported constant in `src/product/capture-address.ts` reading `NEXT_PUBLIC_CAPTURE_ADDRESS` (default `agent@keeps.email`); stepper, activation email copy, and recipes doc all derive from it.
+   - **Mobile-first audit.** Every step usable one-handed on a 390px viewport: inputs ≥16px font (no iOS zoom), tap targets ≥44px, the code input uses `inputmode="numeric" autocomplete="one-time-code"` (iOS SMS/mail code autofill), no horizontal scroll, stepper progress visible without scrolling. Verified at 390×844 and 430×932 via Playwright or manual device pass.
+   Acceptance: a fresh user on a phone completes email → code → capture instructions → working style without ever seeing a Clerk-styled page; the displayed capture address is `agent@keeps.email`; sign-up still creates the Clerk user, fires the `user.created` webhook, and claims held emails exactly as the 2.6 flow did.
+
+6. **keeps.email is the canonical web origin.**
+   Acceptance: the `keeps.email` domain is attached to the Vercel project (done 2026-06-12 — already serving). `NEXT_PUBLIC_APP_URL` flips to `https://keeps.email` and prod redeploys; activation-email links and the stepper's post-signup URLs use it. `keeps-ivory.vercel.app` remains as a secondary alias (Inngest `INNGEST_SERVE_ORIGIN` may stay on it — it is stable — or move; either way the Inngest sync must be re-verified after the env flip). Clerk dev-instance origin allows `https://keeps.email` (verify sign-up works from the new origin; dashboard change is Arav's if needed).
+
 ## Data & Migrations
 
 1. **`0005_phase2_7_activation_and_follow.sql`** — `ALTER TABLE pending_inbound_emails ADD COLUMN activation_sent_at timestamptz;` plus `CREATE INDEX pending_inbound_sender_activation_idx ON pending_inbound_emails (sender_email, activation_sent_at);` and `ALTER TYPE audit_action ADD VALUE` for `email.activation_sent`, `email.activation_suppressed`, `email.thread_followed` (one non-transactional statement per value, same caveat as Phase 3's migration notes). Apply via psql per the 2.6 runbook (`pnpm db:migrate` remains broken by design).
@@ -49,13 +59,14 @@ Wave A (independent):
 - A2: Migration 0005 + schema.ts updates (`activationSentAt`, audit enum values).
 - A3: `docs/recipes/capture.md` (deliverable 4 doc half).
 
-Wave B (after A):
+Wave B (after A; B1–B3 backend, B4 frontend — independent of B1–B3):
 - B1: `src/email/system-send.ts` (`sendSystemEmail` with RFC 3834 header, outbound persistence with null nudge) + tests.
 - B2: `send-activation-email` Inngest function + registration in `app/api/inngest/route.ts` + tests (deliverable 2).
 - B3: Thread-follow repository method + `handlePostmarkInboundEmail` branch + tests (deliverable 3).
+- B4: Onboarding stepper rework (deliverable 5): `src/product/capture-address.ts` constant, inline `useSignUp` email+code steps in `app/get-started-stepper.tsx`, mobile audit at 390px/430px. Keep `/sign-up` route as fallback; do not touch `/sign-in`.
 
-Wave C (live verification):
-- C1: Deploy; run the **deferred 2.6 claim-path smoke** end to end: second non-user address → email to `agent@keeps.email` → activation email received → Clerk sign-up with that address → pending row claims → loop appears → nudge sends.
+Wave C (live verification, after B):
+- C1: Flip `NEXT_PUBLIC_APP_URL` to `https://keeps.email`, redeploy, re-verify Inngest sync + Clerk sign-up from the new origin (deliverable 6). Then run the **deferred 2.6 claim-path smoke** end to end *through the new stepper on a phone*: second non-user address → email to `agent@keeps.email` → activation email received → tap sign-up link → complete inline email+code flow → pending row claims → loop appears → nudge sends.
 - C2: Thread-follow live smoke: user emails a counterparty with agent CC'd; counterparty replies without the CC trimmed; reply appears on the user's thread (DB) and triggers processing.
 - C3: Loop-guard live probe: send an `Auto-Submitted: auto-replied` fixture to the inbound webhook; assert `email.activation_suppressed` audit row and zero outbound.
 
@@ -86,4 +97,6 @@ Wave C (live verification):
 - [ ] Counterparty reply on a CC'd thread attaches to the owner's thread and is processed (loop extraction runs); stranger with copied `References` headers still lands in pending.
 - [ ] Deferred 2.6 claim-path smoke (C1) passes end to end and is checked off in `phase-2.6-auth-go-live.md`.
 - [ ] `docs/recipes/capture.md` exists and the Gmail filter recipe has been executed once for real.
+- [ ] Onboarding completes on a phone (390px) entirely in-stepper — email → code → capture → style — with no Clerk-styled page on the happy path; displayed capture address is `agent@keeps.email`.
+- [ ] `https://keeps.email` is the canonical origin: serves the app, `NEXT_PUBLIC_APP_URL` points at it, activation links use it, Clerk sign-up works from it.
 - [ ] `pnpm typecheck`, `pnpm test`, `pnpm build` green; migration 0005 applied in prod.
