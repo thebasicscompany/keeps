@@ -130,12 +130,22 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
   // Shared success path for both normal verification and "already verified"
   // recovery. Factored out so submitCode's catch can reuse it without
-  // duplicating the setActive + refresh + setStep sequence.
-  async function completeVerification(sessionId: string | null | undefined) {
-    if (!clerk.isLoaded) return;
+  // duplicating the setActive + refresh + setStep sequence. A missing session
+  // id means the sign-up is NOT actually complete (e.g. the instance demands a
+  // field this flow never collects) — advancing would fake success with no
+  // Clerk user behind it, which is how the password-requirement outage hid.
+  async function completeVerification(sessionId: string | null | undefined): Promise<boolean> {
+    if (!clerk.isLoaded || !sessionId) {
+      setError({
+        message: "Verification didn't finish. Send a fresh code and try again.",
+        existing: false,
+      });
+      return false;
+    }
     await clerk.setActive({ session: sessionId });
     router.refresh();
     setStep("capture");
+    return true;
   }
 
   async function startSignUp(event: React.FormEvent<HTMLFormElement>) {
