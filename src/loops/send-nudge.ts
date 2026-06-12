@@ -66,11 +66,9 @@ export async function sendNudge(input: {
     mailboxHash: `n_${nudge.id}`,
     inReplyTo: nudge.sourceProviderMessageId ?? undefined,
     references: nudge.referencesHeader ?? undefined,
-    headers: {
-      "Reply-To": replyTo,
-      ...(nudge.sourceProviderMessageId ? { "In-Reply-To": nudge.sourceProviderMessageId } : {}),
-      ...(nudge.referencesHeader ? { References: nudge.referencesHeader } : {}),
-    },
+    // Reply-To / In-Reply-To / References travel via their typed fields above; senders
+    // own the mapping (Postmark rejects Reply-To inside its Headers array, error 300).
+    headers: {},
   };
 
   const result: SendResult = await input.sender.send(outbound);

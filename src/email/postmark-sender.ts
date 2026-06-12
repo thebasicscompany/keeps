@@ -96,7 +96,14 @@ export class PostmarkSender implements EmailSender {
     const headers: PostmarkHeader[] = [];
 
     // Caller-supplied custom headers first (e.g. X-Keeps-Kind), preserving insertion order.
+    // Reply-To is forbidden inside Postmark's Headers array (ErrorCode 300) — it only
+    // travels via the top-level ReplyTo field. Threading headers are skipped here when
+    // their typed fields are set, so callers passing both don't produce duplicates.
     for (const [Name, Value] of Object.entries(email.headers ?? {})) {
+      const lower = Name.toLowerCase();
+      if (lower === "reply-to") continue;
+      if (lower === "in-reply-to" && email.inReplyTo) continue;
+      if (lower === "references" && email.references) continue;
       headers.push({ Name, Value });
     }
 

@@ -58,7 +58,8 @@ describe("sendNudge", () => {
 
     expect(result.status).toBe("sent");
     expect(store.sends[0]?.replyTo).toBe(`agent+n_${nudgeId}@keeps.ai`);
-    expect(store.sends[0]?.headers["Reply-To"]).toBe(`agent+n_${nudgeId}@keeps.ai`);
+    // Reply-To must NOT ride in the generic headers map — Postmark rejects it there (300).
+    expect(store.sends[0]?.headers["Reply-To"]).toBeUndefined();
   });
 
   it("records in_reply_to matching the source inbound provider message id", async () => {
