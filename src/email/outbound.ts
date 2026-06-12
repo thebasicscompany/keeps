@@ -6,12 +6,16 @@ import { nudges, outboundEmails } from "@/db/schema";
 /**
  * Provider-agnostic outbound email shape. Phase 2.5 only ships the dev recording
  * transport; the live Postmark transport lands in Phase 2.6 behind this same type.
+ *
+ * `userId` and `nudgeId` are nullable to support system emails (e.g. activation) that
+ * have no owning user row and no nudge. Nudge sends always supply both; system sends pass
+ * `null` for both.
  */
 export type OutboundEmail = {
-  /** Owning user; recorded on the persisted outbound row. */
-  userId: string;
-  /** Nudge this send fulfils; flipped to `sent` by recording transports. */
-  nudgeId: string;
+  /** Owning user; recorded on the persisted outbound row. Null for system emails. */
+  userId: string | null;
+  /** Nudge this send fulfils; flipped to `sent` by recording transports. Null for system emails. */
+  nudgeId: string | null;
   to: string;
   subject: string;
   textBody: string;
@@ -74,8 +78,10 @@ export function parseNudgeMailboxHash(replyTo: string | undefined): string | nul
 export interface OutboundEmailStore {
   recordSend(input: {
     id: string;
-    userId: string;
-    nudgeId: string;
+    /** Null for system emails (no owning user row). */
+    userId: string | null;
+    /** Null for system emails (no associated nudge). */
+    nudgeId: string | null;
     provider: string;
     providerMessageId: string;
     toEmail: string;
@@ -95,8 +101,8 @@ export class DrizzleOutboundEmailStore implements OutboundEmailStore {
 
   async recordSend(input: {
     id: string;
-    userId: string;
-    nudgeId: string;
+    userId: string | null;
+    nudgeId: string | null;
     provider: string;
     providerMessageId: string;
     toEmail: string;
