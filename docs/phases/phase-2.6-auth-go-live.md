@@ -277,7 +277,7 @@ If any of steps 4–7 fails, the phase is not done; debug and re-run from the fa
 - [x] All Wave C tasks merged: `PostmarkSender` passes its unit-test contract; sender factory returns Postmark in prod and dev recorder otherwise; inbound webhook returns 503 if secret missing in prod, 401 on wrong secret, 413 on oversized body.
 - [x] Wave D complete: Vercel + RDS + Inngest Cloud + Clerk + Postmark all configured with the documented env matrix.
 - [x] Wave E smoke checklist passes end to end: real email → loop with model summary → nudge email with correct `Reply-To` and threading headers → `dismiss 1` reply → loop dismissed.
-- [ ] Unknown-sender claim path verified live: BCC from new address → pending row → Clerk sign-up + verify → claim → loop + nudge for the new user. **(DEFERRED 2026-06-12 — needs a second non-user address; everything it depends on is verified.)**
+- [x] Unknown-sender claim path verified live: BCC from new address → pending row → Clerk sign-up + verify → claim → loop + nudge for the new user. **(VERIFIED 2026-06-12 during Phase 2.7 C1 — aravb1209@gmail.com on a phone through the inline stepper, production Clerk instance: 3 pendings claimed, 3 loops, 3 nudges.)**
 - [x] `pnpm typecheck`, `pnpm test`, `pnpm build` pass on `main`.
 - [x] `docs/roadmap.md` "Not Yet Done" items related to auth, inbound webhook URL, outbound delivery, and Inngest cloud keys are checked off.
 

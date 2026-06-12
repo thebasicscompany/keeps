@@ -1,6 +1,6 @@
 # Phase 2.7: Capture Aperture & Onboarding Repair
 
-Status: in_progress (Waves A+B shipped to prod 2026-06-12; Wave C live verification underway)
+Status: done (2026-06-12; one exit criterion deferred: live execution of the Gmail filter recipe — run it with the first design partner)
 Depends on: 2.6
 Roadmap reference: `docs/roadmap.md` — "Phase 1: Email Identity And Inbound Capture" (claim flow) and the AR-9 consent-boundary ruling in `docs/phases/README.md`.
 
@@ -91,12 +91,12 @@ Wave C (live verification, after B):
 
 ## Exit Criteria
 
-- [ ] Unknown sender emailing `agent@keeps.email` receives the activation email within ~1 minute; the email carries `Auto-Submitted: auto-replied`.
-- [ ] Auto-generated inbound (OOO/bulk/list/self) produces `email.activation_suppressed` and zero outbound mail — verified by live probe C3.
-- [ ] Same stranger emailing twice in a week gets exactly one activation email.
-- [ ] Counterparty reply on a CC'd thread attaches to the owner's thread and is processed (loop extraction runs); stranger with copied `References` headers still lands in pending.
-- [ ] Deferred 2.6 claim-path smoke (C1) passes end to end and is checked off in `phase-2.6-auth-go-live.md`.
+- [x] Unknown sender emailing `agent@keeps.email` receives the activation email within ~1 minute; the email carries `Auto-Submitted: auto-replied`. (live probe 2026-06-12: sent in <30s via Postmark, header on outbound row, link uses keeps.email)
+- [x] Auto-generated inbound (OOO/bulk/list/self) produces `email.activation_suppressed` and zero outbound mail — verified by live probe C3. (live probe C3 2026-06-12: reason=auto_generated, signal=auto-submitted, zero outbound)
+- [x] Same stranger emailing twice in a week gets exactly one activation email. (live probe + re-verified during C1: reason=recent_activation, exactly one send)
+- [x] Counterparty reply on a CC'd thread attaches to the owner's thread and is processed (loop extraction runs); stranger with copied `References` headers still lands in pending. (C2 live 2026-06-12: thread_followed audit, 2 loops, nudges to owner only; spoof guard unit-tested)
+- [x] Deferred 2.6 claim-path smoke (C1) passes end to end and is checked off in `phase-2.6-auth-go-live.md`. (passed 2026-06-12 on phone; 2.6 checkbox checked)
 - [ ] `docs/recipes/capture.md` exists and the Gmail filter recipe has been executed once for real.
-- [ ] Onboarding completes on a phone (390px) entirely in-stepper — email → code → capture → style — with no Clerk-styled page on the happy path; displayed capture address is `agent@keeps.email`.
-- [ ] `https://keeps.email` is the canonical origin: serves the app, `NEXT_PUBLIC_APP_URL` points at it, activation links use it, Clerk sign-up works from it.
-- [ ] `pnpm typecheck`, `pnpm test`, `pnpm build` green; migration 0005 applied in prod.
+- [x] Onboarding completes on a phone (390px) entirely in-stepper — email → code → capture → style — with no Clerk-styled page on the happy path; displayed capture address is `agent@keeps.email`. (verified live 2026-06-12; required disabling password on the Clerk prod instance per the email-OTP flow prerequisites)
+- [x] `https://keeps.email` is the canonical origin: serves the app, `NEXT_PUBLIC_APP_URL` points at it, activation links use it, Clerk sign-up works from it. (flipped + redeployed 2026-06-12; Clerk DNS/SSL on clerk.keeps.email live)
+- [x] `pnpm typecheck`, `pnpm test`, `pnpm build` green; migration 0005 applied in prod. (applied via psql + verified 2026-06-12; 142 tests)
