@@ -8,6 +8,7 @@ const defaultAddress = {
 
 export const directPostmarkFixture: PostmarkInboundPayload = {
   MessageID: "postmark-direct-001",
+  MailboxHash: "",
   From: "Arav <arav@example.com>",
   FromFull: defaultAddress,
   To: "agent@keeps.ai",
@@ -82,6 +83,64 @@ export const forwardLikePostmarkFixture: PostmarkInboundPayload = {
     {
       Name: "References",
       Value: "<partner-renewal-root@example.com> <forward-001@example.com>",
+    },
+  ],
+};
+
+export const nudgeReplyPostmarkFixture: PostmarkInboundPayload = {
+  ...directPostmarkFixture,
+  MessageID: "postmark-nudge-reply-001",
+  MailboxHash: "n_00000000-0000-0000-0000-000000000001",
+  To: "agent+n_00000000-0000-0000-0000-000000000001@keeps.ai",
+  ToFull: [
+    {
+      Email: "agent+n_00000000-0000-0000-0000-000000000001@keeps.ai",
+      Name: "Keeps",
+      MailboxHash: "n_00000000-0000-0000-0000-000000000001",
+    },
+  ],
+  Subject: "Re: Keeps loops",
+  TextBody: "dismiss 1",
+  HtmlBody: "<p>dismiss 1</p>",
+  StrippedTextReply: "dismiss 1",
+  Headers: [
+    {
+      Name: "Message-ID",
+      Value: "<nudge-reply-001@example.com>",
+    },
+    {
+      Name: "In-Reply-To",
+      Value: "<dev-00000000-0000-0000-0000-000000000001@keeps.local>",
+    },
+  ],
+};
+
+export const correctionPostmarkFixture: PostmarkInboundPayload = {
+  ...directPostmarkFixture,
+  MessageID: "postmark-correction-001",
+  Subject: "Re: Keeps loops",
+  TextBody: "correct: the vendor pricing follow-up is owned by Sam, not me",
+  HtmlBody: "<p>correct: the vendor pricing follow-up is owned by Sam, not me</p>",
+  StrippedTextReply: "correct: the vendor pricing follow-up is owned by Sam, not me",
+  Headers: [
+    {
+      Name: "Message-ID",
+      Value: "<correction-001@example.com>",
+    },
+  ],
+};
+
+export const questionPostmarkFixture: PostmarkInboundPayload = {
+  ...directPostmarkFixture,
+  MessageID: "postmark-question-001",
+  Subject: "Re: Keeps loops",
+  TextBody: "what are my open loops?",
+  HtmlBody: "<p>what are my open loops?</p>",
+  StrippedTextReply: "what are my open loops?",
+  Headers: [
+    {
+      Name: "Message-ID",
+      Value: "<question-001@example.com>",
     },
   ],
 };

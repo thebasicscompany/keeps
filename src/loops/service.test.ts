@@ -152,6 +152,7 @@ describe("reply command handling", () => {
 const lowConfidenceEmail: NormalizedEmail = {
   provider: "fixture",
   providerMessageId: "fixture-low-confidence-001",
+  mailboxHash: null,
   from: {
     email: "arav@example.com",
     name: "Arav",

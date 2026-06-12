@@ -15,6 +15,7 @@ const postmarkAttachmentSchema = z.object({
 
 export const postmarkInboundSchema = z.object({
   MessageID: z.string().min(1),
+  MailboxHash: z.string().optional().default(""),
   From: z.string().min(1),
   FromFull: postmarkAddressSchema,
   To: z.string().default(""),
@@ -57,6 +58,7 @@ export type NormalizedAttachment = {
 export type NormalizedEmail = {
   provider: "postmark" | "fixture";
   providerMessageId: string;
+  mailboxHash: string | null;
   from: NormalizedEmailAddress;
   to: NormalizedEmailAddress[];
   cc: NormalizedEmailAddress[];
@@ -76,6 +78,7 @@ export function normalizePostmarkInbound(payload: unknown): NormalizedEmail {
   return {
     provider: "postmark",
     providerMessageId: parsed.MessageID,
+    mailboxHash: parsed.MailboxHash || null,
     from: normalizeAddress(parsed.FromFull),
     to: parsed.ToFull.map(normalizeAddress),
     cc: parsed.CcFull.map(normalizeAddress),

@@ -47,8 +47,6 @@ export const loopStatusEnum = pgEnum("loop_status", [
   "open",
   "waiting_on_me",
   "waiting_on_other",
-  "due_soon",
-  "overdue",
   "blocked",
   "snoozed",
   "done",
@@ -169,6 +167,7 @@ export const inboundEmails = pgTable(
       .references(() => emailThreads.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     providerMessageId: text("provider_message_id").notNull(),
+    mailboxHash: text("mailbox_hash"),
     senderEmail: text("sender_email").notNull(),
     senderName: text("sender_name"),
     subject: text("subject").notNull().default(""),
@@ -192,6 +191,7 @@ export const inboundEmails = pgTable(
     userIdx: index("inbound_emails_user_idx").on(table.userId),
     threadIdx: index("inbound_emails_thread_idx").on(table.emailThreadId),
     senderIdx: index("inbound_emails_sender_idx").on(table.senderEmail),
+    mailboxHashIdx: index("inbound_emails_mailbox_hash_idx").on(table.mailboxHash),
   }),
 );
 

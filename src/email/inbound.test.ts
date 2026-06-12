@@ -15,6 +15,7 @@ import {
   bccLikePostmarkFixture,
   directPostmarkFixture,
   forwardLikePostmarkFixture,
+  nudgeReplyPostmarkFixture,
 } from "@/email/fixtures/postmark";
 
 describe("normalizePostmarkInbound", () => {
@@ -67,6 +68,31 @@ describe("handlePostmarkInboundEmail", () => {
     expect(result.status).toBe("sender_verified");
     expect(repository.inboundCount()).toBe(1);
     expect(repository.inboundSubjects()).toEqual(["Follow up on launch blockers"]);
+  });
+
+  it("normalizes the MailboxHash to null when absent", () => {
+    const normalized = normalizePostmarkInbound(directPostmarkFixture);
+
+    expect(normalized.mailboxHash).toBeNull();
+  });
+
+  it("flows MailboxHash through NormalizedEmail onto the inbound_emails row", async () => {
+    const normalized = normalizePostmarkInbound(nudgeReplyPostmarkFixture);
+    expect(normalized.mailboxHash).toBe("n_00000000-0000-0000-0000-000000000001");
+
+    const repository = new InMemoryInboundRepository();
+    repository.addVerifiedUser({ id: "user-1", email: "arav@example.com" });
+
+    const result = await handlePostmarkInboundEmail(nudgeReplyPostmarkFixture, {
+      repository,
+      appUrl: "http://localhost:3000",
+    });
+
+    expect(result.status).toBe("sender_verified");
+    expect(repository.inboundCount()).toBe(1);
+    expect(repository.inboundMailboxHashes()).toEqual([
+      "n_00000000-0000-0000-0000-000000000001",
+    ]);
   });
 
   it("dedupes duplicate provider webhook deliveries", async () => {
@@ -174,6 +200,10 @@ class InMemoryInboundRepository implements InboundEmailRepository {
 
   inboundSubjects() {
     return [...this.inbound.values()].map((record) => record.subject);
+  }
+
+  inboundMailboxHashes() {
+    return [...this.inbound.values()].map((record) => record.normalized.mailboxHash);
   }
 
   async findVerifiedUserByEmail(email: string): Promise<VerifiedEmailUser | null> {

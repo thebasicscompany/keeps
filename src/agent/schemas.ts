@@ -5,8 +5,6 @@ export const loopStatusSchema = z.enum([
   "open",
   "waiting_on_me",
   "waiting_on_other",
-  "due_soon",
-  "overdue",
   "blocked",
   "snoozed",
   "done",

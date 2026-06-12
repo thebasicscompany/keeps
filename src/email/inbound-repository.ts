@@ -288,6 +288,7 @@ function toEmailValues(input: PersistInboundEmailInput) {
   return {
     provider: input.normalized.provider,
     providerMessageId: input.normalized.providerMessageId,
+    mailboxHash: input.normalized.mailboxHash,
     senderEmail: input.normalized.from.email,
     senderName: input.normalized.from.name,
     subject: input.normalized.subject,

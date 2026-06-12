@@ -44,6 +44,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
       normalized: {
         provider: normalizedPayload.provider ?? "postmark",
         providerMessageId: email.providerMessageId,
+        mailboxHash: email.mailboxHash ?? normalizedPayload.mailboxHash ?? null,
         from: {
           email: email.senderEmail,
           name: email.senderName,

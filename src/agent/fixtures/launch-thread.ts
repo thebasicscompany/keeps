@@ -3,6 +3,7 @@ import type { NormalizedEmail } from "@/email/normalize";
 export const launchThreadFixture: NormalizedEmail = {
   provider: "fixture",
   providerMessageId: "fixture-launch-thread-001",
+  mailboxHash: null,
   from: {
     email: "arav@example.com",
     name: "Arav",
