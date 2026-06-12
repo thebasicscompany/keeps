@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -25,13 +26,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className={cn(geistSans.variable, geistMono.variable, bricolage.variable)}
-    >
-      <body>
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html
+        lang="en"
+        className={cn(geistSans.variable, geistMono.variable, bricolage.variable)}
+      >
+        <body>
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
