@@ -34,22 +34,28 @@ export const participantSchema = z.object({
   email: z.string().nullable(),
 });
 
+// Every field is required (no `.default()`/`.optional()`): OpenAI strict Structured
+// Outputs rejects a schema whose `required` array omits any key in `properties`
+// (error: "'required' ... must include every key in properties. Missing 'status'").
+// Optionality is expressed with `.nullable()`. Both the model (strict mode forces it
+// to emit every field) and the deterministic extractor supply all fields, so dropping
+// the input-side defaults is behavior-safe — the inferred output types are unchanged.
 export const loopCandidateSchema = z.object({
   summary: z.string().min(1),
   kind: loopKindSchema,
-  status: loopStatusSchema.default("candidate"),
-  basis: z.enum(["explicit_commitment", "inferred_next_step"]).default("inferred_next_step"),
+  status: loopStatusSchema,
+  basis: z.enum(["explicit_commitment", "inferred_next_step"]),
   ownerText: z.string().nullable(),
   requesterText: z.string().nullable(),
   dueDateText: z.string().nullable(),
   dueAt: z.string().datetime().nullable(),
   nextCheckAt: z.string().datetime().nullable(),
-  dueDateUncertainty: z.enum(["known", "relative", "ambiguous", "missing"]).default("missing"),
+  dueDateUncertainty: z.enum(["known", "relative", "ambiguous", "missing"]),
   confidence: z.number().min(0).max(1),
   explicitness: z.enum(["explicit", "inferred"]),
-  participants: z.array(participantSchema).default([]),
+  participants: z.array(participantSchema),
   source: sourceEvidenceSchema,
-  ambiguityFlags: z.array(z.string()).default([]),
+  ambiguityFlags: z.array(z.string()),
 });
 
 export const extractionIntentSchema = z.enum(["capture", "command", "approval", "question", "correction", "unknown"]);
