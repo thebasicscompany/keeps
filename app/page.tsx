@@ -1,8 +1,29 @@
-import { getDevSession } from "@/auth/dev-session";
+import { auth } from "@clerk/nextjs/server";
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { userIdentities } from "@/db/schema";
 import { GetStartedStepper } from "./get-started-stepper";
 
-export default async function HomePage() {
-  const session = await getDevSession();
+async function resolveSessionEmail(): Promise<string | null> {
+  const { userId } = await auth();
 
-  return <GetStartedStepper sessionEmail={session?.email ?? null} />;
+  if (!userId) {
+    return null;
+  }
+
+  const [identity] = await getDb()
+    .select({ email: userIdentities.email })
+    .from(userIdentities)
+    .where(
+      and(eq(userIdentities.provider, "clerk"), eq(userIdentities.providerAccountId, userId)),
+    )
+    .limit(1);
+
+  return identity?.email ?? null;
+}
+
+export default async function HomePage() {
+  const sessionEmail = await resolveSessionEmail();
+
+  return <GetStartedStepper sessionEmail={sessionEmail} />;
 }

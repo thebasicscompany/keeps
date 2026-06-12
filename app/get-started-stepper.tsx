@@ -1,6 +1,7 @@
 "use client";
 
 import { Archive, ArrowRight, Check, Copy, Mail } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { workingStyles } from "@/product/working-styles";
 import { cn } from "@/lib/utils";
@@ -14,8 +15,10 @@ const primaryButtonClass =
   "h-16 rounded-[22px] border border-[#944023]/25 bg-[#bf5636] bg-linear-to-b from-white/18 to-black/8 px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.28),inset_0_-1px_0_rgb(91_35_17/0.34),0_14px_28px_rgb(125_55_28/0.2)] transition-colors hover:bg-[#ad492d] focus-visible:ring-2 focus-visible:ring-[#bf5636]/32 focus-visible:outline-none";
 
 export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | null }) {
+  const router = useRouter();
   const [step, setStep] = useState<StepId>(sessionEmail ? "capture" : "email");
   const [copied, setCopied] = useState(false);
+  const [email, setEmail] = useState(sessionEmail ?? "");
 
   const stepIndex = useMemo(() => {
     if (step === "done") {
@@ -29,6 +32,17 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
     void navigator.clipboard?.writeText(captureAddress);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  function startSignUp(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = email.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    router.push(`/sign-up/?email_address=${encodeURIComponent(trimmed)}`);
   }
 
   return (
@@ -71,7 +85,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
           <div className="min-h-[128px]">
             {step === "email" ? (
-              <form action="/api/auth/start" className="space-y-5" id="keeps-email-form" method="post">
+              <form className="space-y-5" id="keeps-email-form" onSubmit={startSignUp}>
                 <label className="sr-only" htmlFor="email">
                   Work email
                 </label>
@@ -83,7 +97,8 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                   type="email"
                   required
                   className="h-[78px] w-full rounded-[25px] border border-[#e6dacd] bg-[#fffaf3]/82 px-7 text-[18px] font-medium text-[#171310] shadow-[inset_0_1px_0_rgb(255_255_255/0.68)] outline-none transition-colors placeholder:text-[#9d948b] focus:border-[#d4c1b1] focus:bg-[#fffaf3] focus:ring-0"
-                  defaultValue={sessionEmail ?? ""}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                 />
                 <p className="px-1 text-sm leading-6 font-medium text-[#7d7167]">
                   Keeps only accepts messages from an address you verify.
