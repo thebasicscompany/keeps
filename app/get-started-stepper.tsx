@@ -21,10 +21,10 @@ const steps: StepId[] = ["email", "capture", "style"];
 const RESEND_COOLDOWN_SECONDS = 30;
 
 const primaryButtonClass =
-  "h-16 rounded-[22px] border border-[#944023]/25 bg-[#bf5636] bg-linear-to-b from-white/18 to-black/8 px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.28),inset_0_-1px_0_rgb(91_35_17/0.34),0_14px_28px_rgb(125_55_28/0.2)] transition-colors hover:bg-[#ad492d] focus-visible:ring-2 focus-visible:ring-[#bf5636]/32 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#bf5636]";
+  "h-16 rounded-none border border-[rgba(30,107,79,0.32)] bg-[#C1F5DF] px-6 text-base font-semibold text-[#14140F] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),inset_0_-2px_0_rgba(30,107,79,0.28),0_12px_24px_rgba(30,107,79,0.16)] transition-colors hover:bg-[#AFF0D3] focus-visible:ring-2 focus-visible:ring-[rgba(30,107,79,0.32)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#C1F5DF]";
 
 const inputClass =
-  "h-[78px] w-full rounded-[25px] border border-[#e6dacd] bg-[#fffaf3]/82 px-7 text-[18px] font-medium text-[#171310] shadow-[inset_0_1px_0_rgb(255_255_255/0.68)] outline-none transition-colors placeholder:text-[#9d948b] focus:border-[#d4c1b1] focus:bg-[#fffaf3] focus:ring-0";
+  "h-[78px] w-full rounded-none border border-[#E2E2DD] bg-white px-7 text-[18px] font-medium text-[#14140F] outline-none transition-shadow placeholder:text-[#6F6F66] focus:border-[#14140F] focus:shadow-[0_0_0_1px_#14140F] focus:ring-0";
 
 // Maps a thrown Clerk error to a single inline message in the design language.
 // Never renders raw error objects. `existing` signals the caller to surface the
@@ -291,13 +291,13 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
   }
 
   return (
-    <main className="min-h-svh bg-[#fbf7f0] text-[#171310]">
+    <main className="relative z-10 min-h-svh text-[#14140F]">
       <section className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col justify-center px-5 py-9 sm:px-0">
-        <div className="rounded-[34px] border border-[#efe5da]/72 bg-linear-to-b from-white/58 to-white/16 p-5 shadow-[inset_0_1px_0_rgb(255_255_255/0.8),0_28px_80px_rgb(84_48_24/0.08)] sm:p-6">
+        <div className="rounded-none border border-[#E2E2DD] bg-white p-5 shadow-[0_24px_70px_rgba(20,20,15,0.07)] sm:p-6">
           <div className="mb-9 flex items-start justify-between gap-6">
             <div className="min-w-0">
               <div
-                className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-[#bf5636] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.24),0_10px_28px_rgb(120_55_28/0.12)]"
+                className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]"
                 aria-hidden="true"
               >
                 {step === "email" ? (
@@ -308,10 +308,10 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                   <Mail className="size-7" strokeWidth={2.4} />
                 )}
               </div>
-              <h1 className="text-[28px] leading-tight font-medium tracking-normal text-[#171310]">
+              <h1 className="text-[28px] leading-tight font-bold tracking-normal text-[#14140F]">
                 Welcome to Keeps
               </h1>
-              <p className="mt-1 text-[27px] leading-tight font-medium tracking-normal text-[#9a9086]">
+              <p className="mt-1 text-[27px] leading-tight font-medium tracking-normal text-[#6F6F66]">
                 {step === "email" && "What's your work email?"}
                 {step === "code" && "Enter your code."}
                 {step === "capture" && "Save your capture address."}
@@ -322,7 +322,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
             {step !== "done" ? (
               <button
-                className="mt-5 shrink-0 text-sm font-medium text-[#8e8378] transition-colors hover:text-[#171310] focus-visible:ring-2 focus-visible:ring-[#171310]/20 focus-visible:outline-none"
+                className="mt-5 shrink-0 text-sm font-medium text-[#6F6F66] transition-colors hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none"
                 onClick={() => setStep("done")}
                 type="button"
               >
@@ -357,13 +357,13 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                     fails on instances with bot protection enabled. */}
                 <div id="clerk-captcha" />
                 {error ? (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#bf5636]">
+                  <p className="px-1 text-sm leading-6 font-medium text-[#B42318]">
                     {error.message}
                     {error.existing ? (
                       <>
                         {" "}
                         <Link
-                          className="font-semibold underline underline-offset-2 hover:text-[#ad492d]"
+                          className="font-semibold underline underline-offset-2 hover:text-[#8f1c13]"
                           href={"/sign-in" as Route}
                         >
                           Sign in instead
@@ -373,7 +373,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                     ) : null}
                   </p>
                 ) : (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#7d7167]">
+                  <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
                     Keeps only accepts messages from an address you verify.
                   </p>
                 )}
@@ -395,24 +395,24 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                   type="text"
                   maxLength={6}
                   required
-                  className={cn(inputClass, "text-center font-mono tracking-[0.45em]")}
+                  className={cn(inputClass, "text-center text-[28px] tracking-[0.4em]")}
                   value={code}
                   onChange={onCodeChange}
                 />
                 {error ? (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#bf5636]">{error.message}</p>
+                  <p className="px-1 text-sm leading-6 font-medium text-[#B42318]">{error.message}</p>
                 ) : (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#7d7167]">
+                  <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
                     We sent a 6-digit code to{" "}
-                    <span className="font-mono text-[#171310]">{email}</span>.
+                    <span className="font-semibold text-[#14140F]">{email}</span>.
                   </p>
                 )}
                 <button
                   className={cn(
-                    "px-1 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-[#171310]/20 focus-visible:outline-none",
+                    "px-1 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none",
                     cooldown > 0
-                      ? "cursor-not-allowed text-[#a89d92]"
-                      : "text-[#bf5636] hover:text-[#ad492d]"
+                      ? "cursor-not-allowed text-[#6F6F66]"
+                      : "text-[#1E6B4F] hover:text-[#14140F]"
                   )}
                   disabled={cooldown > 0 || submitting}
                   onClick={resendCode}
@@ -426,17 +426,22 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             {step === "capture" ? (
               <div className="space-y-5">
                 <button
-                  className="flex h-[78px] w-full items-center justify-between rounded-[25px] border border-[#e6dacd] bg-[#fffaf3]/82 px-7 text-left font-mono text-[17px] font-medium text-[#171310] shadow-[inset_0_1px_0_rgb(255_255_255/0.68)] transition-colors hover:bg-[#fffaf3] focus-visible:ring-2 focus-visible:ring-[#171310]/18 focus-visible:outline-none"
+                  className="flex h-[78px] w-full items-center justify-between rounded-none border border-[rgba(30,107,79,0.28)] bg-[#E9FBF4] px-7 text-left text-[17px] font-medium text-[#14140F] transition-colors hover:bg-[#def7ec] focus-visible:ring-2 focus-visible:ring-[#14140F]/18 focus-visible:outline-none"
                   onClick={copyAddress}
                   type="button"
                 >
                   <span>{CAPTURE_ADDRESS}</span>
-                  <span className="flex items-center gap-2 font-sans text-sm text-[#8e8378]">
+                  <span
+                    className={cn(
+                      "flex items-center gap-2 text-sm",
+                      copied ? "text-[#1E6B4F]" : "text-[#6F6F66]"
+                    )}
+                  >
                     {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                    {copied ? "Copied" : "Copy"}
+                    {copied ? "Copied ✓" : "Copy"}
                   </span>
                 </button>
-                <p className="px-1 text-sm leading-6 font-medium text-[#7d7167]">
+                <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
                   BCC, forward, or email Keeps directly. Keeps stays invisible to everyone else.
                 </p>
               </div>
@@ -445,12 +450,12 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             {step === "style" ? <WorkingStylePicker styles={workingStyles} /> : null}
 
             {step === "done" ? (
-              <div className="rounded-[25px] border border-[#e6dacd] bg-[#fffaf3]/82 px-7 py-6 shadow-[inset_0_1px_0_rgb(255_255_255/0.68)]">
-                <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-[#bf5636] text-white">
+              <div className="rounded-none border border-[#E2E2DD] bg-[#E9FBF4] px-7 py-6">
+                <div className="mb-4 flex size-10 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]">
                   <Check className="size-5" strokeWidth={2.6} />
                 </div>
-                <p className="text-[17px] leading-7 font-medium text-[#171310]">
-                  Send work to <span className="font-mono">{CAPTURE_ADDRESS}</span>. Keeps will
+                <p className="text-[17px] leading-7 font-medium text-[#14140F]">
+                  Send work to <span className="font-semibold">{CAPTURE_ADDRESS}</span>. Keeps will
                   remember it privately.
                 </p>
               </div>
@@ -459,7 +464,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
           <div className="mt-5 space-y-4">
             {step === "email" ? (
-              <p className="max-w-[510px] text-[15px] leading-6 font-medium text-[#8e8378]">
+              <p className="max-w-[510px] text-[15px] leading-6 font-medium text-[#6F6F66]">
                 External actions always require approval.
               </p>
             ) : null}
@@ -467,7 +472,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             <div className="flex items-center gap-3">
               {step !== "email" && step !== "done" ? (
                 <button
-                  className="h-16 rounded-[22px] px-5 text-sm font-semibold text-[#7d7167] transition-colors hover:text-[#171310] focus-visible:ring-2 focus-visible:ring-[#171310]/20 focus-visible:outline-none"
+                  className="h-16 rounded-none px-5 text-sm font-semibold text-[#6F6F66] transition-colors hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none"
                   onClick={goBack}
                   type="button"
                 >
@@ -539,8 +544,8 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             {steps.map((item, index) => (
               <span
                 className={cn(
-                  "h-1.5 flex-1 rounded-full bg-[#ebe1d6] transition-colors",
-                  index <= Math.min(stepIndex, steps.length - 1) && "bg-[#171310]"
+                  "h-1.5 flex-1 rounded-none bg-[#E3E3DE] transition-colors",
+                  index <= Math.min(stepIndex, steps.length - 1) && "bg-[#14140F]"
                 )}
                 key={item}
               />

@@ -31,7 +31,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         lang="en"
         className={cn(geistSans.variable, geistMono.variable, bricolage.variable)}
       >
-        <body>
+        <body className="bg-[#FAFAF8] font-[family-name:var(--font-bricolage)] text-[#14140F]">
           {children}
         </body>
       </html>
