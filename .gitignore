@@ -8,3 +8,6 @@ coverage
 *.log
 pnpm-debug.log*
 *.tsbuildinfo
+
+# clerk configuration (can include secrets)
+/.clerk/
