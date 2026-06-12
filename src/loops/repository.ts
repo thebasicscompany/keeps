@@ -64,6 +64,28 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     };
   }
 
+  async findLoopsByInboundEmailId(inboundEmailId: string): Promise<PersistedLoop[]> {
+    const rows = await this.db
+      .select({
+        id: loops.id,
+        userId: loops.userId,
+        emailThreadId: loops.emailThreadId,
+        inboundEmailId: loops.inboundEmailId,
+        sourceEvidenceId: loops.sourceEvidenceId,
+        status: loops.status,
+        summary: loops.summary,
+        confidence: loops.confidence,
+        nextCheckAt: loops.nextCheckAt,
+        sourceQuote: sourceEvidence.quote,
+      })
+      .from(loops)
+      .innerJoin(sourceEvidence, eq(loops.sourceEvidenceId, sourceEvidence.id))
+      .where(eq(loops.inboundEmailId, inboundEmailId))
+      .orderBy(asc(loops.createdAt));
+
+    return rows.map((row) => toPersistedLoop(row, row.sourceQuote));
+  }
+
   async persistExtractedLoops(input: {
     email: ProcessableInboundEmail;
     loops: LoopToPersist[];
@@ -192,6 +214,46 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     };
   }
 
+  async createReplyNudge(input: {
+    userId: string;
+    inboundEmailId: string;
+    subject: string;
+    body: string;
+    intent: string;
+  }): Promise<PersistedNudge> {
+    const [nudge] = await this.db
+      .insert(nudges)
+      .values({
+        userId: input.userId,
+        inboundEmailId: input.inboundEmailId,
+        nudgeType: "private_reply",
+        status: "pending",
+        channel: "email",
+        subject: input.subject,
+        body: input.body,
+        metadata: {
+          kind: "private_reply",
+          intent: input.intent,
+          loopCount: 0,
+          lowConfidence: false,
+          ordinalMap: {},
+        } satisfies PrivateReplyNudgeMetadata,
+      })
+      .returning({
+        id: nudges.id,
+        userId: nudges.userId,
+        inboundEmailId: nudges.inboundEmailId,
+        body: nudges.body,
+      });
+
+    return {
+      id: nudge.id,
+      userId: nudge.userId,
+      inboundEmailId: nudge.inboundEmailId,
+      body: nudge.body,
+    };
+  }
+
   async listCommandableLoops(input: { userId: string; emailThreadId?: string | null }): Promise<PersistedLoop[]> {
     const where = input.emailThreadId
       ? and(eq(loops.userId, input.userId), eq(loops.emailThreadId, input.emailThreadId), inArray(loops.status, commandableStatuses))
@@ -287,6 +349,15 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
       });
 
       return toPersistedLoop(loop, evidence?.quote ?? "");
+    });
+  }
+
+  async recordLoopCorrection(input: { userId: string; loopId: string; commandText: string }): Promise<void> {
+    await this.db.insert(loopEvents).values({
+      userId: input.userId,
+      loopId: input.loopId,
+      eventType: "corrected",
+      commandText: input.commandText,
     });
   }
 }

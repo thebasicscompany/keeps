@@ -1,3 +1,6 @@
+import { eq, inArray } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { loops, nudges, outboundEmails, sourceEvidence } from "@/db/schema";
 import type { NormalizedEmail } from "@/email/normalize";
 import type { PersistedLoop, PrivateReplyNudgeMetadata } from "@/loops/service";
 
@@ -127,4 +130,98 @@ async function loopsInOrdinalOrder(
     const loop = byId.get(loopId);
     return loop ? [loop] : [];
   });
+}
+
+/**
+ * Coerces a persisted nudge's `metadata` jsonb into the resolver's expected shape.
+ * Older or malformed nudges (no `ordinalMap`) resolve to an empty map rather than
+ * throwing, so a reply to a non-private-reply nudge degrades to "no loops".
+ */
+function asPrivateReplyMetadata(value: unknown): PrivateReplyNudgeMetadata {
+  const record = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const rawMap = record.ordinalMap;
+  const ordinalMap: Record<number, string> = {};
+
+  if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) {
+    for (const [key, loopId] of Object.entries(rawMap as Record<string, unknown>)) {
+      const ordinal = Number(key);
+      if (Number.isInteger(ordinal) && typeof loopId === "string") {
+        ordinalMap[ordinal] = loopId;
+      }
+    }
+  }
+
+  return {
+    kind: "private_reply",
+    intent: typeof record.intent === "string" ? record.intent : "capture",
+    loopCount: typeof record.loopCount === "number" ? record.loopCount : Object.keys(ordinalMap).length,
+    lowConfidence: record.lowConfidence === true,
+    ordinalMap,
+  };
+}
+
+/**
+ * Drizzle-backed `ReplyTargetStore`. Resolves the mailbox-hash path against `nudges`,
+ * the `In-Reply-To` fallback against `outbound_emails.in_reply_to` (indexed for this),
+ * and hydrates loops (with their source quote) by id.
+ */
+export class DrizzleReplyTargetStore implements ReplyTargetStore {
+  private readonly db = getDb();
+
+  async findNudgeById(nudgeId: string): Promise<ResolvableNudge | null> {
+    const [row] = await this.db
+      .select({ id: nudges.id, userId: nudges.userId, metadata: nudges.metadata })
+      .from(nudges)
+      .where(eq(nudges.id, nudgeId))
+      .limit(1);
+
+    return row ? { id: row.id, userId: row.userId, metadata: asPrivateReplyMetadata(row.metadata) } : null;
+  }
+
+  async findNudgeByOutboundInReplyTo(inReplyTo: string): Promise<ResolvableNudge | null> {
+    const [row] = await this.db
+      .select({ id: nudges.id, userId: nudges.userId, metadata: nudges.metadata })
+      .from(outboundEmails)
+      .innerJoin(nudges, eq(outboundEmails.nudgeId, nudges.id))
+      .where(eq(outboundEmails.inReplyTo, inReplyTo))
+      .limit(1);
+
+    return row ? { id: row.id, userId: row.userId, metadata: asPrivateReplyMetadata(row.metadata) } : null;
+  }
+
+  async findLoopsByIds(loopIds: string[]): Promise<PersistedLoop[]> {
+    if (loopIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select({
+        id: loops.id,
+        userId: loops.userId,
+        emailThreadId: loops.emailThreadId,
+        inboundEmailId: loops.inboundEmailId,
+        sourceEvidenceId: loops.sourceEvidenceId,
+        status: loops.status,
+        summary: loops.summary,
+        confidence: loops.confidence,
+        nextCheckAt: loops.nextCheckAt,
+        sourceQuote: sourceEvidence.quote,
+      })
+      .from(loops)
+      .innerJoin(sourceEvidence, eq(loops.sourceEvidenceId, sourceEvidence.id))
+      .where(inArray(loops.id, loopIds));
+
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      emailThreadId: row.emailThreadId,
+      inboundEmailId: row.inboundEmailId,
+      sourceEvidenceId: row.sourceEvidenceId,
+      status: row.status,
+      summary: row.summary,
+      sourceQuote: row.sourceQuote,
+      confidence: row.confidence,
+      nextCheckAt: row.nextCheckAt,
+    }));
+  }
 }

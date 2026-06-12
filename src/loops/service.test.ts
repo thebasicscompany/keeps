@@ -156,6 +156,77 @@ describe("reply command handling", () => {
       },
     ]);
   });
+
+  it("uses a preloaded loop list and never calls listCommandableLoops (C3)", async () => {
+    const repository = new InMemoryLoopProcessingRepository();
+    // These two loops are the ones the nudge listed as #1 and #2.
+    const listedOne = repository.addLoop({
+      id: "listed-1",
+      userId: "user-1",
+      emailThreadId: "thread-1",
+      status: "open",
+      summary: "Send the renewal packet.",
+    });
+    const listedTwo = repository.addLoop({
+      id: "listed-2",
+      userId: "user-1",
+      emailThreadId: "thread-1",
+      status: "open",
+      summary: "Confirm discount cap.",
+    });
+    // A newer loop that live re-listing would surface as #1 — it must NOT be touched.
+    repository.addLoop({
+      id: "newer",
+      userId: "user-1",
+      emailThreadId: "thread-1",
+      status: "open",
+      summary: "A newer loop the nudge never listed.",
+    });
+
+    repository.listCommandableLoops = async () => {
+      throw new Error("listCommandableLoops must not be called when loops are preloaded");
+    };
+
+    const result = await applyLoopReplyCommand({
+      userId: "user-1",
+      emailThreadId: "thread-1",
+      text: "dismiss 1",
+      repository,
+      loops: [listedOne, listedTwo],
+    });
+
+    expect(result.updatedLoops.map((loop) => loop.id)).toEqual(["listed-1"]);
+    expect(repository.getLoop("listed-1")?.status).toBe("dismissed");
+    expect(repository.getLoop("listed-2")?.status).toBe("open");
+    expect(repository.getLoop("newer")?.status).toBe("open");
+  });
+});
+
+describe("processInboundEmailForLoops idempotency guard", () => {
+  it("returns already_processed and emits no events when loops already exist", async () => {
+    const repository = new InMemoryLoopProcessingRepository();
+    repository.addEmail({
+      id: "inbound-dup",
+      userId: "user-1",
+      emailThreadId: "thread-dup",
+      emailMessageId: "message-dup",
+      normalized: normalizePostmarkInbound(forwardLikePostmarkFixture),
+    });
+
+    const first = await processInboundEmailForLoops({ inboundEmailId: "inbound-dup", repository });
+    if (first.status !== "processed") {
+      throw new Error("expected processed result on first run");
+    }
+
+    const second = await processInboundEmailForLoops({ inboundEmailId: "inbound-dup", repository });
+
+    expect(second.status).toBe("already_processed");
+    if (second.status !== "already_processed") {
+      throw new Error("expected already_processed");
+    }
+    expect(second.events).toEqual([]);
+    expect(second.loops.map((loop) => loop.id).sort()).toEqual(first.loops.map((loop) => loop.id).sort());
+  });
 });
 
 const lowConfidenceEmail: NormalizedEmail = {
@@ -227,6 +298,10 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
     return this.emails.get(inboundEmailId) ?? null;
   }
 
+  async findLoopsByInboundEmailId(inboundEmailId: string): Promise<PersistedLoop[]> {
+    return [...this.loops.values()].filter((loop) => loop.inboundEmailId === inboundEmailId);
+  }
+
   async persistExtractedLoops(input: {
     email: ProcessableInboundEmail;
     loops: LoopToPersist[];
@@ -270,6 +345,31 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
     return nudge;
   }
 
+  async createReplyNudge(input: {
+    userId: string;
+    inboundEmailId: string;
+    subject: string;
+    body: string;
+    intent: string;
+  }): Promise<PersistedNudge> {
+    const nudge: PersistedNudge = {
+      id: this.allocateId("nudge"),
+      userId: input.userId,
+      inboundEmailId: input.inboundEmailId,
+      body: input.body,
+    };
+
+    this.nudges.set(nudge.id, nudge);
+    this.nudgeMetadata.set(nudge.id, {
+      kind: "private_reply",
+      intent: input.intent,
+      loopCount: 0,
+      lowConfidence: false,
+      ordinalMap: {},
+    });
+    return nudge;
+  }
+
   async listCommandableLoops(input: { userId: string; emailThreadId?: string | null }): Promise<PersistedLoop[]> {
     return [...this.loops.values()].filter((loop) => {
       const statusMatches = ["candidate", "open", "snoozed", "waiting_on_me", "waiting_on_other"].includes(loop.status);
@@ -302,6 +402,12 @@ class InMemoryLoopProcessingRepository implements LoopProcessingRepository {
 
     this.loops.set(updated.id, updated);
     return updated;
+  }
+
+  readonly corrections: { userId: string; loopId: string; commandText: string }[] = [];
+
+  async recordLoopCorrection(input: { userId: string; loopId: string; commandText: string }): Promise<void> {
+    this.corrections.push(input);
   }
 
   private allocateId(prefix: string): string {

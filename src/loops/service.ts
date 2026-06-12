@@ -50,6 +50,13 @@ export type PrivateReplyNudgeMetadata = {
 
 export type LoopProcessingRepository = {
   findInboundEmailById(inboundEmailId: string): Promise<ProcessableInboundEmail | null>;
+  /**
+   * Persistence-level idempotency guard (Deliverable 11): the loops already extracted
+   * for this inbound email, if any. A non-empty result means capture already ran for
+   * this `inboundEmailId`, so the capture branch returns `already_processed` and skips
+   * re-extraction and nudge creation.
+   */
+  findLoopsByInboundEmailId(inboundEmailId: string): Promise<PersistedLoop[]>;
   persistExtractedLoops(input: {
     email: ProcessableInboundEmail;
     loops: LoopToPersist[];
@@ -62,6 +69,18 @@ export type LoopProcessingRepository = {
     body: string;
     metadata: PrivateReplyNudgeMetadata;
   }): Promise<PersistedNudge>;
+  /**
+   * Creates a plain private-reply nudge for non-capture branches (command result,
+   * correction ack, question/approval stubs). Carries an empty `ordinalMap` because
+   * these replies do not list loops the user can address by ordinal.
+   */
+  createReplyNudge(input: {
+    userId: string;
+    inboundEmailId: string;
+    subject: string;
+    body: string;
+    intent: string;
+  }): Promise<PersistedNudge>;
   listCommandableLoops(input: { userId: string; emailThreadId?: string | null }): Promise<PersistedLoop[]>;
   updateLoopFromCommand(input: {
     loopId: string;
@@ -71,6 +90,11 @@ export type LoopProcessingRepository = {
     commandText: string;
     eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
   }): Promise<PersistedLoop>;
+  /**
+   * Correction branch (Deliverable 5): record the user's correction text against a loop
+   * as a `loop_events.event_type = 'corrected'` row. Real re-extraction is Phase 3.
+   */
+  recordLoopCorrection(input: { userId: string; loopId: string; commandText: string }): Promise<void>;
 };
 
 export type Phase2WorkflowEvent =
@@ -81,6 +105,8 @@ export type Phase2WorkflowEvent =
         emailThreadId: string;
         userId: string;
         intent: string;
+        /** Dispatched branch; mirrors `intent` today, kept distinct for multi-intent emails. */
+        branch: string;
         loopCount: number;
       };
     }
@@ -126,6 +152,12 @@ export type ProcessInboundEmailForLoopsResult =
       events: Phase2WorkflowEvent[];
     }
   | {
+      status: "already_processed";
+      inboundEmailId: string;
+      loops: PersistedLoop[];
+      events: Phase2WorkflowEvent[];
+    }
+  | {
       status: "missing_inbound_email";
       inboundEmailId: string;
       events: Phase2WorkflowEvent[];
@@ -142,6 +174,20 @@ export async function processInboundEmailForLoops(input: {
     return {
       status: "missing_inbound_email",
       inboundEmailId: input.inboundEmailId,
+      events: [],
+    };
+  }
+
+  // Persistence-level idempotency guard (Deliverable 11): if loops already exist for
+  // this inbound email, capture already ran. Skip re-extraction and nudge creation so a
+  // replayed `email.received` creates zero new rows and emits no `loop.created`.
+  const existingLoops = await input.repository.findLoopsByInboundEmailId(email.id);
+
+  if (existingLoops.length > 0) {
+    return {
+      status: "already_processed",
+      inboundEmailId: email.id,
+      loops: existingLoops,
       events: [],
     };
   }
@@ -192,6 +238,7 @@ export async function processInboundEmailForLoops(input: {
         emailThreadId: email.emailThreadId,
         userId: email.userId,
         intent: extraction.intent,
+        branch: "capture",
         loopCount: extraction.loops.length,
       },
     },
@@ -244,12 +291,22 @@ export async function applyLoopReplyCommand(input: {
   text: string;
   repository: LoopProcessingRepository;
   now?: Date;
+  /**
+   * Loops the command should operate over, preloaded from the source nudge's
+   * `metadata.ordinalMap` (see C2 command branch). When provided, the nudge-scoped
+   * list is authoritative and `listCommandableLoops` is skipped entirely, so
+   * "dismiss 1" resolves to the loop the nudge listed as #1 — even if newer loops
+   * exist. Omit it to fall back to live re-listing (used by digest commands).
+   */
+  loops?: PersistedLoop[];
 }): Promise<ApplyLoopReplyCommandResult> {
   const command = parseLoopReplyCommand(input.text, { now: input.now });
-  const commandableLoops = await input.repository.listCommandableLoops({
-    userId: input.userId,
-    emailThreadId: input.emailThreadId,
-  });
+  const commandableLoops =
+    input.loops ??
+    (await input.repository.listCommandableLoops({
+      userId: input.userId,
+      emailThreadId: input.emailThreadId,
+    }));
 
   if (command.type === "unknown") {
     return {
