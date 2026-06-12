@@ -147,3 +147,114 @@ describe("sendNudge", () => {
     expect(store.sends).toHaveLength(0);
   });
 });
+
+/**
+ * Privacy guard: a nudge is the OWNER's private loop summary. The DrizzleSendNudgeRepository
+ * sets `toEmail` from the source inbound email's `senderEmail`, which for a thread-followed
+ * email is the COUNTERPARTY. This fake mirrors that repository's resolution logic so the
+ * guard ("never address a nudge to an address that is not its owner's") is unit-tested
+ * without a real DB: resolve toEmail to the source sender ONLY if it belongs to the nudge's
+ * user (canonical email or a linked identity), otherwise the owner's canonical email.
+ */
+class GuardedSendNudgeRepository implements SendNudgeRepository {
+  constructor(
+    private readonly nudge: Omit<SendableNudge, "toEmail">,
+    private readonly source: {
+      senderEmail: string | null;
+      ownerEmail: string;
+      ownerIdentities?: string[];
+    },
+  ) {}
+
+  async findSendableNudge(nudgeId: string): Promise<SendableNudge | null> {
+    if (nudgeId !== this.nudge.id) {
+      return null;
+    }
+
+    return { ...this.nudge, toEmail: this.resolveToEmail() };
+  }
+
+  private resolveToEmail(): string {
+    const normalize = (value: string) => value.trim().toLowerCase();
+    const { senderEmail, ownerEmail, ownerIdentities = [] } = this.source;
+
+    if (!senderEmail) {
+      return ownerEmail;
+    }
+
+    const normalizedSender = normalize(senderEmail);
+    const ownerAddresses = new Set([ownerEmail, ...ownerIdentities].map(normalize));
+
+    return ownerAddresses.has(normalizedSender) ? senderEmail : ownerEmail;
+  }
+}
+
+describe("sendNudge — owner privacy guard (B3)", () => {
+  const baseNudge: Omit<SendableNudge, "toEmail"> = {
+    id: nudgeId,
+    userId: "owner-1",
+    status: "pending",
+    subject: "Re: your loops",
+    body: "I found 1 loop.\n\n1. Send the renewal packet.",
+    sourceProviderMessageId,
+    referencesHeader: "<thread-root@keeps.local>",
+  };
+
+  it("redirects a thread-followed nudge away from the counterparty to the owner's address", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const repository = new GuardedSendNudgeRepository(baseNudge, {
+      // Source inbound email was the COUNTERPARTY's reply.
+      senderEmail: "jordan@example.com",
+      ownerEmail: "arav@example.com",
+    });
+
+    const result = await sendNudge({
+      nudgeId,
+      sender: new DevRecordingSender(),
+      store,
+      repository,
+    });
+
+    expect(result.status).toBe("sent");
+    // The owner's private summary must NOT be delivered to the counterparty.
+    expect(store.sends[0]?.toEmail).toBe("arav@example.com");
+    expect(store.sends[0]?.toEmail).not.toBe("jordan@example.com");
+  });
+
+  it("keeps the source sender when it is the owner's own canonical address", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const repository = new GuardedSendNudgeRepository(baseNudge, {
+      senderEmail: "Arav@Example.com",
+      ownerEmail: "arav@example.com",
+    });
+
+    await sendNudge({ nudgeId, sender: new DevRecordingSender(), store, repository });
+
+    expect(store.sends[0]?.toEmail).toBe("Arav@Example.com");
+  });
+
+  it("keeps the source sender when it is one of the owner's linked identities", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const repository = new GuardedSendNudgeRepository(baseNudge, {
+      senderEmail: "arav@work.com",
+      ownerEmail: "arav@example.com",
+      ownerIdentities: ["arav@work.com"],
+    });
+
+    await sendNudge({ nudgeId, sender: new DevRecordingSender(), store, repository });
+
+    expect(store.sends[0]?.toEmail).toBe("arav@work.com");
+  });
+
+  it("falls back to the owner address when the source sender is unknown", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const repository = new GuardedSendNudgeRepository(baseNudge, {
+      senderEmail: null,
+      ownerEmail: "arav@example.com",
+    });
+
+    await sendNudge({ nudgeId, sender: new DevRecordingSender(), store, repository });
+
+    expect(store.sends[0]?.toEmail).toBe("arav@example.com");
+  });
+});

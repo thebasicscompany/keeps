@@ -1,4 +1,4 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   auditLog,
@@ -17,9 +17,11 @@ import type {
   PersistPendingInboundEmailInput,
   StoredInboundEmail,
   StoredPendingInboundEmail,
+  ThreadFollowedAuditInput,
   VerifiedEmailUser,
 } from "@/email/inbound";
-import type { NormalizedEmail } from "@/email/normalize";
+import type { NormalizedEmail, NormalizedEmailAddress } from "@/email/normalize";
+import { CAPTURE_ADDRESS } from "@/product/capture-address";
 
 export class DrizzleInboundEmailRepository implements InboundEmailRepository {
   private readonly db = getDb();
@@ -45,6 +47,83 @@ export class DrizzleInboundEmailRepository implements InboundEmailRepository {
       .limit(1);
 
     return identity ?? null;
+  }
+
+  async findThreadOwnerForFollow(
+    threadKey: string,
+    senderEmail: string,
+  ): Promise<VerifiedEmailUser | null> {
+    const normalizedSender = normalizeIdentityEmail(senderEmail);
+    const agentEmail = normalizeIdentityEmail(CAPTURE_ADDRESS);
+
+    // Our own agent address can never grant participation: it is on virtually every
+    // captured thread, so allowing it would let anyone spoofing the agent attach mail.
+    if (normalizedSender === agentEmail) {
+      return null;
+    }
+
+    // All threads carrying this key, oldest first (deterministic owner selection).
+    const candidateThreads = await this.db
+      .select({
+        id: emailThreads.id,
+        userId: emailThreads.userId,
+        createdAt: emailThreads.createdAt,
+      })
+      .from(emailThreads)
+      .where(eq(emailThreads.threadKey, threadKey))
+      .orderBy(asc(emailThreads.createdAt), asc(emailThreads.id));
+
+    if (candidateThreads.length === 0) {
+      return null;
+    }
+
+    for (const thread of candidateThreads) {
+      const priorEmails = await this.db
+        .select({
+          senderEmail: inboundEmails.senderEmail,
+          recipients: inboundEmails.recipients,
+          ccRecipients: inboundEmails.ccRecipients,
+        })
+        .from(inboundEmails)
+        .where(eq(inboundEmails.emailThreadId, thread.id));
+
+      const isParticipant = priorEmails.some((email) =>
+        threadParticipantEmails(email).some(
+          (participant) =>
+            participant !== agentEmail && participant === normalizedSender,
+        ),
+      );
+
+      if (!isParticipant) {
+        continue;
+      }
+
+      const [owner] = await this.db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(and(eq(users.id, thread.userId), eq(users.status, "verified")))
+        .limit(1);
+
+      if (owner) {
+        return owner;
+      }
+    }
+
+    return null;
+  }
+
+  async recordThreadFollowedAudit(input: ThreadFollowedAuditInput): Promise<void> {
+    await this.db.insert(auditLog).values({
+      userId: input.ownerUserId,
+      action: "email.thread_followed",
+      actorType: "system",
+      metadata: {
+        inboundEmailId: input.inboundEmailId,
+        threadKey: input.threadKey,
+        senderEmail: input.senderEmail,
+        ownerUserId: input.ownerUserId,
+      },
+    });
   }
 
   async createPendingInboundEmail(
@@ -282,6 +361,33 @@ export class DrizzleInboundEmailRepository implements InboundEmailRepository {
 
     return existing ?? null;
   }
+}
+
+function threadParticipantEmails(email: {
+  senderEmail: string;
+  recipients: unknown;
+  ccRecipients: unknown;
+}): string[] {
+  const emails: string[] = [normalizeIdentityEmail(email.senderEmail)];
+
+  for (const address of [...toAddressList(email.recipients), ...toAddressList(email.ccRecipients)]) {
+    emails.push(normalizeIdentityEmail(address.email));
+  }
+
+  return emails;
+}
+
+function toAddressList(value: unknown): NormalizedEmailAddress[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is NormalizedEmailAddress =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as { email?: unknown }).email === "string",
+  );
 }
 
 function toEmailValues(input: PersistInboundEmailInput) {

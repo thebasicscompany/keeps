@@ -269,6 +269,15 @@ class InMemoryInboundRepository implements InboundEmailRepository {
     return this.verifiedUsers.get(email.toLowerCase()) ?? null;
   }
 
+  // Thread-following is not exercised by the clerk-user flow; satisfy the interface.
+  async findThreadOwnerForFollow(): Promise<VerifiedEmailUser | null> {
+    return null;
+  }
+
+  async recordThreadFollowedAudit(): Promise<void> {
+    // no-op
+  }
+
   async createPendingInboundEmail(
     input: PersistPendingInboundEmailInput,
   ): Promise<StoredPendingInboundEmail> {

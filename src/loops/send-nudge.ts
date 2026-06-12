@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { getOptionalEnv } from "@/config/env";
-import { inboundEmails, nudges } from "@/db/schema";
+import { inboundEmails, nudges, userIdentities, users } from "@/db/schema";
+import { normalizeIdentityEmail } from "@/email/address";
 import { randomUUID } from "node:crypto";
 import {
   buildNudgeReplyTo,
@@ -166,16 +167,63 @@ export class DrizzleSendNudgeRepository implements SendNudgeRepository, PendingN
       return null;
     }
 
+    // Privacy guard: the nudge body is the OWNER's private loop summary and must only ever
+    // reach the owner. For a thread-followed inbound email the source `senderEmail` is the
+    // COUNTERPARTY, not the owner — sending there would leak the owner's loops. So we only
+    // reply to the source sender if that address provably belongs to the nudge's user
+    // (users.email or a verified user_identities.email). Otherwise we fall back to the
+    // owner's canonical users.email.
+    const toEmail = await this.resolveOwnerSafeRecipient(row.userId, row.senderEmail);
+
     return {
       id: row.id,
       userId: row.userId,
       status: row.status,
       subject: row.subject,
       body: row.body,
-      toEmail: row.senderEmail ?? "",
+      toEmail,
       sourceProviderMessageId: row.sourceProviderMessageId ?? null,
       referencesHeader: readReferencesHeader(row.headers),
     };
+  }
+
+  /**
+   * Returns an address the nudge can safely be sent to. If `sourceSenderEmail` belongs to
+   * `userId` (canonical email or a linked identity), it is used unchanged. Otherwise the
+   * owner's canonical `users.email` is returned. A nudge is NEVER addressed to an address
+   * that is not its owner's.
+   */
+  private async resolveOwnerSafeRecipient(
+    userId: string,
+    sourceSenderEmail: string | null,
+  ): Promise<string> {
+    const [owner] = await this.db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const ownerEmail = owner?.email ?? "";
+
+    if (!sourceSenderEmail) {
+      return ownerEmail;
+    }
+
+    const normalizedSender = normalizeIdentityEmail(sourceSenderEmail);
+
+    if (normalizeIdentityEmail(ownerEmail) === normalizedSender) {
+      return sourceSenderEmail;
+    }
+
+    const [identity] = await this.db
+      .select({ id: userIdentities.id })
+      .from(userIdentities)
+      .where(
+        and(eq(userIdentities.userId, userId), eq(userIdentities.email, normalizedSender)),
+      )
+      .limit(1);
+
+    return identity ? sourceSenderEmail : ownerEmail;
   }
 }
 

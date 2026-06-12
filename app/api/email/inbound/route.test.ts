@@ -145,6 +145,51 @@ describe("POST /api/email/inbound — production hardening (C3)", () => {
     expect(handleMock).toHaveBeenCalledTimes(1);
   });
 
+  it("returns 202 for a counterparty reply that the handler attaches to the thread owner (B3)", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("KEEPS_INBOUND_WEBHOOK_SECRET", undefined);
+    vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/keeps");
+
+    // Counterparty (not a verified user) replies on a captured thread with known References.
+    // The handler resolves the thread owner and returns a sender_verified-shaped result
+    // whose reply is addressed to the OWNER — never to the counterparty.
+    handleMock.mockResolvedValueOnce({
+      status: "sender_verified" as const,
+      normalized: {
+        providerMessageId: "follow-1",
+        from: { email: "jordan@example.com" },
+        subject: "Re: Partner renewal",
+        attachmentCount: 0,
+      },
+      inboundEmailId: "ie-follow-1",
+      emailThreadId: "th-owner-1",
+      reply: { to: "owner@example.com", subject: "Keeps saved this thread", text: "Got it." },
+    });
+
+    const response = await POST(
+      makeRequest({
+        body: {
+          From: "Jordan <jordan@example.com>",
+          Headers: [{ Name: "References", Value: "<thread-root@example.com>" }],
+        },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted: boolean;
+      status: string;
+      email: { from: string };
+      reply: { to: string };
+    };
+    expect(body.accepted).toBe(true);
+    expect(body.status).toBe("sender_verified");
+    expect(body.email.from).toBe("jordan@example.com");
+    // The acknowledgement reply goes to the owner, not the counterparty.
+    expect(body.reply.to).toBe("owner@example.com");
+    expect(handleMock).toHaveBeenCalledTimes(1);
+  });
+
   it("allows a missing secret outside production (local/dev)", async () => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("KEEPS_INBOUND_WEBHOOK_SECRET", undefined);

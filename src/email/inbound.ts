@@ -35,8 +35,24 @@ export type PersistPendingInboundEmailInput = PersistInboundEmailInput & {
   expiresAt: Date;
 };
 
+export type ThreadFollowedAuditInput = {
+  inboundEmailId: string;
+  threadKey: string;
+  senderEmail: string;
+  ownerUserId: string;
+};
+
 export type InboundEmailRepository = {
   findVerifiedUserByEmail(email: string): Promise<VerifiedEmailUser | null>;
+  /**
+   * CC-once thread following: returns the verified owner of an existing thread that the
+   * sender is allowed to attach mail to. The sender qualifies ONLY if their normalized
+   * address was a PRIOR participant (From/To/Cc) of an existing inbound email on a thread
+   * with this exact `threadKey`. A matching `threadKey` alone (e.g. stolen/copied
+   * References headers) is NOT sufficient — that is the spoof guard. Returns null when no
+   * qualifying thread exists.
+   */
+  findThreadOwnerForFollow(threadKey: string, senderEmail: string): Promise<VerifiedEmailUser | null>;
   createPendingInboundEmail(input: PersistPendingInboundEmailInput): Promise<StoredPendingInboundEmail>;
   createInboundEmailForUser(
     input: PersistInboundEmailInput & {
@@ -44,6 +60,7 @@ export type InboundEmailRepository = {
       threadKey: string;
     },
   ): Promise<StoredInboundEmail>;
+  recordThreadFollowedAudit(input: ThreadFollowedAuditInput): Promise<void>;
   claimPendingInboundEmailsForUser(user: VerifiedEmailUser): Promise<StoredInboundEmail[]>;
 };
 
@@ -123,6 +140,56 @@ export async function handlePostmarkInboundEmail(
   const verifiedUser = await options.repository.findVerifiedUserByEmail(senderEmail);
 
   if (!verifiedUser) {
+    const threadKey = buildThreadKey(normalized);
+    const followOwner = await options.repository.findThreadOwnerForFollow(threadKey, senderEmail);
+
+    if (followOwner) {
+      const inbound = await options.repository.createInboundEmailForUser({
+        normalized,
+        rawPayload: payload,
+        providerReceivedAt,
+        userId: followOwner.id,
+        threadKey,
+      });
+
+      if (inbound.duplicate) {
+        return {
+          status: "duplicate",
+          normalized,
+          providerMessageId: normalized.providerMessageId,
+          reply: null,
+        };
+      }
+
+      await options.repository.recordThreadFollowedAudit({
+        inboundEmailId: inbound.id,
+        threadKey,
+        senderEmail,
+        ownerUserId: followOwner.id,
+      });
+
+      await options.sendEvent?.({
+        name: "email.received",
+        data: {
+          inboundEmailId: inbound.id,
+          emailThreadId: inbound.emailThreadId,
+          userId: inbound.userId,
+          provider: normalized.provider,
+          providerMessageId: normalized.providerMessageId,
+          subject: normalized.subject,
+        },
+      });
+
+      return {
+        status: "sender_verified",
+        normalized,
+        inboundEmailId: inbound.id,
+        emailThreadId: inbound.emailThreadId,
+        // The reply ALWAYS goes to the thread owner, never to the counterparty who replied.
+        reply: buildKnownSenderReply(followOwner.email),
+      };
+    }
+
     const pending = await options.repository.createPendingInboundEmail({
       normalized,
       rawPayload: payload,
