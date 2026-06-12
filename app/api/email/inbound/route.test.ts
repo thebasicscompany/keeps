@@ -82,6 +82,35 @@ describe("POST /api/email/inbound — production hardening (C3)", () => {
     expect(handleMock).not.toHaveBeenCalled();
   });
 
+  it("returns 202 when the secret arrives as a basic-auth password (Postmark URL credentials)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("KEEPS_INBOUND_WEBHOOK_SECRET", SECRET);
+    vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/keeps");
+
+    const response = await POST(
+      makeRequest({
+        headers: { authorization: `Basic ${btoa(`keeps:${SECRET}`)}` },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(handleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 401 when the basic-auth password is wrong", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("KEEPS_INBOUND_WEBHOOK_SECRET", SECRET);
+
+    const response = await POST(
+      makeRequest({
+        headers: { authorization: `Basic ${btoa("keeps:wrong-secret")}` },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(handleMock).not.toHaveBeenCalled();
+  });
+
   it("returns 413 before parsing the body when content-length exceeds 10MB", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("KEEPS_INBOUND_WEBHOOK_SECRET", SECRET);

@@ -8,6 +8,22 @@ import { sendWorkflowEvent } from "@/workflows/events";
 
 const MAX_INBOUND_BODY_BYTES = 10 * 1024 * 1024;
 
+// Postmark inbound cannot send custom headers from every plan/UI, but it does support
+// credentials embedded in the webhook URL (https://user:pass@host). The password is
+// treated as the shared secret; the username is ignored.
+function basicAuthPassword(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Basic ")) return null;
+
+  try {
+    const decoded = atob(authorization.slice("Basic ".length));
+    const colonIndex = decoded.indexOf(":");
+    return colonIndex === -1 ? null : decoded.slice(colonIndex + 1);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   const env = getOptionalEnv();
   const isProd = process.env.NODE_ENV === "production";
@@ -17,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   if (env.KEEPS_INBOUND_WEBHOOK_SECRET) {
-    const provided = request.headers.get("x-keeps-webhook-secret");
+    const provided = request.headers.get("x-keeps-webhook-secret") ?? basicAuthPassword(request);
 
     if (provided !== env.KEEPS_INBOUND_WEBHOOK_SECRET) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
