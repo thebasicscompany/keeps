@@ -124,7 +124,7 @@ export interface NudgeRepository {
    */
   writeAudit(input: {
     userId: string;
-    action: "nudge.sent" | "digest.sent";
+    action: "nudge.sent" | "digest.sent" | "report.generated";
     metadata: Record<string, unknown>;
   }): Promise<void>;
 }
@@ -315,7 +315,7 @@ export class DrizzleNudgeRepository implements NudgeRepository {
 
   async writeAudit(input: {
     userId: string;
-    action: "nudge.sent" | "digest.sent";
+    action: "nudge.sent" | "digest.sent" | "report.generated";
     metadata: Record<string, unknown>;
   }): Promise<void> {
     await this.db.insert(auditLog).values({

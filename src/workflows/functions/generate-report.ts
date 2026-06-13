@@ -197,7 +197,7 @@ export async function generateReport(
     body: textBody,
     // `report` is a new nudge type; the column is text and NudgeType has not yet
     // been extended (out of this task's file scope), so cast at the boundary.
-    type: "report" as never,
+    type: "report",
     metadata: metadata as unknown as Record<string, unknown>,
   });
 
@@ -248,7 +248,7 @@ export async function generateReport(
     userId,
     // `report.generated` is a new audit action; the column is text and the audit
     // action union has not yet been extended (out of this task's file scope).
-    action: "report.generated" as never,
+    action: "report.generated",
     metadata: { reportId, nudgeId },
   });
 
@@ -360,7 +360,7 @@ export const generateReportFunction = inngest.createFunction(
         inboundEmailId,
         subject,
         body: textBody,
-        type: "report" as never,
+        type: "report",
         metadata: metadata as unknown as Record<string, unknown>,
       });
 
@@ -438,7 +438,7 @@ export const generateReportFunction = inngest.createFunction(
       const nudgeRepository = new DrizzleNudgeRepository();
       await nudgeRepository.writeAudit({
         userId,
-        action: "report.generated" as never,
+        action: "report.generated",
         metadata: { reportId: built.reportId, nudgeId: built.nudgeId },
       });
     });
@@ -455,7 +455,7 @@ export const generateReportFunction = inngest.createFunction(
         summaryHeadline: built.summaryHeadline,
         replyNudgeId: built.nudgeId,
       },
-    } as never);
+    });
 
     console.log(
       `[generate-report] userId=${userId} reportId=${built.reportId} nudgeId=${built.nudgeId} kind=${kind}`,

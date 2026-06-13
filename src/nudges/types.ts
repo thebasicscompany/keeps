@@ -15,8 +15,10 @@
  *                     links for a pending draft action.
  *   expiry          — a notification email sent when an approval request expires without
  *                     a decision.
+ *   report          — a generated-insight report reply (Phase 5) carrying the /r/<token>
+ *                     link and an ordinalMap so the reply is commandable ("done 2").
  */
-export type NudgeType = "private_reply" | "nudge" | "digest" | "approval" | "expiry";
+export type NudgeType = "private_reply" | "nudge" | "digest" | "approval" | "expiry" | "report";
 
 /**
  * Type guard: returns true if the given string is a valid NudgeType.
