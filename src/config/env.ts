@@ -32,6 +32,17 @@ const envSchema = z.object({
   // without a code change; defaults live in src/connectors/composio.ts.
   COMPOSIO_SLACK_TOOLKIT_VERSION: z.string().optional(),
   COMPOSIO_GCAL_TOOLKIT_VERSION: z.string().optional(),
+  // Phase 6: observability + trust controls. Added up front so parallel Wave A agents
+  // (Sentry / model-call logging / Postmark deliverability) only consume these.
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  // "1" enables the 200-char prompt preview on model_calls; off by default (full prompt
+  // is never persisted). Requires a manual flip in production env.
+  KEEPS_SENTRY_REDACT_EMAILS: z.string().optional(),
+  KEEPS_MODEL_LOG_PROMPT_PREVIEW: z.string().optional(),
+  // Shared-secret for the Postmark bounce/complaint/delivery webhook (mirrors
+  // KEEPS_INBOUND_WEBHOOK_SECRET). Falls back to KEEPS_INBOUND_WEBHOOK_SECRET if unset.
+  KEEPS_POSTMARK_WEBHOOK_SECRET: z.string().min(12).optional(),
 });
 
 export type KeepsEnv = z.infer<typeof envSchema>;
