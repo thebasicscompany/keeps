@@ -28,8 +28,15 @@ const privateActions = new Set<KeepsActionKind>([
   "create_private_report",
 ]);
 
+/**
+ * Thin shim that delegates to `authorize` so the single source of truth for
+ * "is this action external" lives in one place. Returns true iff the action
+ * requires an approval before execution (i.e. it is external, not private).
+ * Calling with no approval context produces either `needs_approval` (external)
+ * or `allowed` (private); we translate that binary.
+ */
 export function requiresApproval(action: KeepsActionKind): boolean {
-  return externalActions.has(action);
+  return authorize(action, { userId: "" }).result !== "allowed";
 }
 
 /**
@@ -92,6 +99,17 @@ export function authorize(
     return { result: "needs_approval" };
   }
 
+  // A pending approval means "in-flight, not yet decided" — callers should wait,
+  // not treat it as a hard denial. Map to needs_approval so the caller knows to
+  // wait for the approval decision rather than reject the action outright.
+  if (approval.status === "pending") {
+    return {
+      result: "needs_approval",
+      reason: `approval ${approval.id} is pending`,
+    };
+  }
+
+  // rejected / expired / cancelled are terminal-for-this-attempt: do not re-ask.
   if (approval.status !== "approved") {
     return {
       result: "denied",

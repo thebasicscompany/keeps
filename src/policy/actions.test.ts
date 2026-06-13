@@ -46,8 +46,18 @@ describe("authorize", () => {
     expect(decision).toEqual({ result: "allowed" });
   });
 
-  it.each(["pending", "rejected", "expired", "cancelled"] as const)(
-    "denies an external action when the approval is %s (not a re-ask)",
+  it("returns needs_approval for an external action when the approval is pending (in-flight, not terminal)", () => {
+    const decision = authorize(
+      "send_email",
+      ctx({ id: "a1", status: "pending", expiresAt: FUTURE }),
+      { now: NOW },
+    );
+    expect(decision.result).toBe("needs_approval");
+    expect(decision.reason).toContain("pending");
+  });
+
+  it.each(["rejected", "expired", "cancelled"] as const)(
+    "denies an external action when the approval is %s (terminal, not a re-ask)",
     (status) => {
       const decision = authorize(
         "send_email",
@@ -108,5 +118,120 @@ describe("assertApprovalAllowed (back-compat)", () => {
   it("passes for a private action with or without an approvalId", () => {
     expect(() => assertApprovalAllowed("create_private_loop")).not.toThrow();
     expect(() => assertApprovalAllowed("create_private_loop", "approval-1")).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 Deliverable #7 — full truth table (AR-7)
+// Exercises send_slack_message (external) and create_private_loop (private)
+// across every approval state including expiry boundary conditions.
+// ---------------------------------------------------------------------------
+
+describe("Phase 4 AR-7 truth table — send_slack_message (external action)", () => {
+  it("approved + unexpired → allowed", () => {
+    expect(
+      authorize("send_slack_message", ctx({ id: "ap1", status: "approved", expiresAt: FUTURE }), { now: NOW }),
+    ).toEqual({ result: "allowed" });
+  });
+
+  it("no approval → needs_approval", () => {
+    expect(
+      authorize("send_slack_message", ctx(), { now: NOW }),
+    ).toEqual({ result: "needs_approval" });
+  });
+
+  it("pending → needs_approval (in-flight approval, not a terminal denial)", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "pending", expiresAt: FUTURE }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("needs_approval");
+    expect(d.reason).toContain("pending");
+  });
+
+  it("rejected → denied", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "rejected", expiresAt: FUTURE }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("denied");
+    expect(d.reason).toContain("rejected");
+  });
+
+  it("expired (status=expired) → denied", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "expired", expiresAt: FUTURE }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("denied");
+    expect(d.reason).toContain("expired");
+  });
+
+  it("cancelled → denied", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "cancelled", expiresAt: FUTURE }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("denied");
+    expect(d.reason).toContain("cancelled");
+  });
+
+  it("approved but expiresAt < now → denied (stale grant)", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "approved", expiresAt: PAST }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("denied");
+    expect(d.reason).toContain("expired");
+  });
+
+  it("approved but expiresAt === now → denied (boundary: <= is stale)", () => {
+    const d = authorize(
+      "send_slack_message",
+      ctx({ id: "ap1", status: "approved", expiresAt: NOW }),
+      { now: NOW },
+    );
+    expect(d.result).toBe("denied");
+  });
+});
+
+describe("Phase 4 AR-7 truth table — create_private_loop (private action)", () => {
+  it("no approval → allowed (private actions never require approval)", () => {
+    expect(
+      authorize("create_private_loop", ctx(), { now: NOW }),
+    ).toEqual({ result: "allowed" });
+  });
+
+  it("approved + unexpired → allowed (approval is irrelevant for private)", () => {
+    expect(
+      authorize("create_private_loop", ctx({ id: "ap1", status: "approved", expiresAt: FUTURE }), { now: NOW }),
+    ).toEqual({ result: "allowed" });
+  });
+
+  it("pending → allowed (private; approval context is ignored)", () => {
+    expect(
+      authorize("create_private_loop", ctx({ id: "ap1", status: "pending", expiresAt: FUTURE }), { now: NOW }),
+    ).toEqual({ result: "allowed" });
+  });
+
+  it("rejected → allowed (private; approval context is ignored)", () => {
+    expect(
+      authorize("create_private_loop", ctx({ id: "ap1", status: "rejected", expiresAt: FUTURE }), { now: NOW }),
+    ).toEqual({ result: "allowed" });
+  });
+});
+
+describe("Phase 4 AR-7 truth table — requiresApproval shim", () => {
+  it("returns true for an external action (send_slack_message)", () => {
+    expect(requiresApproval("send_slack_message")).toBe(true);
+  });
+
+  it("returns false for a private action (create_private_loop)", () => {
+    expect(requiresApproval("create_private_loop")).toBe(false);
   });
 });
