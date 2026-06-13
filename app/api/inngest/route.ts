@@ -14,6 +14,7 @@ import { hydrateConnectorAccountFunction } from "@/workflows/functions/hydrate-c
 import { sweepConnectorStatusFunction } from "@/workflows/functions/sweep-connector-status";
 import { handleConnectorCommandFunction } from "@/workflows/functions/handle-connector-command";
 import { generateReportFunction } from "@/workflows/functions/generate-report";
+import { rawEmailRetentionPurgeFunction } from "@/workflows/functions/raw-email-retention-purge";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -36,5 +37,7 @@ export const { GET, POST, PUT } = serve({
     handleConnectorCommandFunction,
     // Phase 5 C1: report.requested → generate report + private reply link
     generateReportFunction,
+    // Phase 6 D10: raw-email retention scrub cron (daily 03:00 UTC)
+    rawEmailRetentionPurgeFunction,
   ],
 });
