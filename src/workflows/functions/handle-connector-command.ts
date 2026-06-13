@@ -511,6 +511,16 @@ export const handleConnectorCommandFunction = inngest.createFunction(
         actions: new DrizzleConnectorActionsRepository(),
         now,
         ttlMs,
+        // SUPPRESS approval.requested: this workflow OWNS the connector approval
+        // lifecycle (its own approval email + waitForEvent + execute-once). The
+        // Phase 3 handle-approval function also triggers on approval.requested —
+        // if we broadcast it, every connector command would get a SECOND generic
+        // approval email and an "I don't know how to run that action" reply
+        // (executeApprovedDraft has no handler for slack_dm/calendar_event). The
+        // approval.received this workflow waits on is emitted by decideApproval
+        // (web decide route / reply handler), independent of approval.requested,
+        // so suppression here is safe.
+        emitEvent: async () => {},
       });
     });
 
