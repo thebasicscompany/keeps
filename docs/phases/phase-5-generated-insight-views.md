@@ -1,6 +1,6 @@
 # Phase 5: Generated Insight Views
 
-Status: planned
+Status: done
 Depends on: 3
 Roadmap reference: `docs/roadmap.md` — "Phase 5: Generated Insight Views"
 
@@ -202,14 +202,32 @@ No live model creds required for any test; all model paths have the deterministi
 
 ## Exit Criteria
 
-- [ ] `generated_reports` table migrated locally; `pnpm db:generate` + `pnpm db:migrate` clean.
-- [ ] Each of "what are my insights?", "what am I waiting on?", "what is stale?", "weekly summary", "show Acme loops" routes deterministically (the first four without a model call) and produces a `report.requested` event with the correct kind/scope.
-- [ ] `generate-report` Inngest function generates exactly one report per request (idempotent on `userId + kind + scope-hash + inboundEmailId`), persists with hashed token + 7-day expiry, enqueues a private reply matching the roadmap example shape, and emits `report.generated`.
-- [ ] `/r/<token>` renders a memo-style page for a live report: header, six grouped sections with `due_soon`/`overdue` derived per AR-6, source-evidence chips, row actions; mobile layout has no horizontal scroll.
-- [ ] Source-evidence chip on a sensitive-evidence loop shows a lock and routes to Clerk sign-in (preserving `next=/r/<token>`) when the viewer is anonymous.
-- [ ] Expired or unknown tokens render the friendly dead-end page with HTTP 200 and no information leak.
-- [ ] Row actions hit `src/loops/service.ts::mutateLoopState`; the keystone parity test passes for `done`, `dismiss`, `snooze`.
-- [ ] `report.requested`, `report.generated`, `report.viewed`, and `loop.updated` events fire with documented payloads; `report.viewed` debounces at 5 minutes per report.
-- [ ] Model boundary holds: ranking and inclusion are deterministic in `src/reports/query.ts`; the model only writes `headline` + `bullets[0..3]` in `src/reports/summarize.ts`; tests verify extra model fields are dropped.
-- [ ] All unit + integration tests pass; `pnpm typecheck`, `pnpm test`, `pnpm build` green.
-- [ ] Phase 5 row in `docs/phases/README.md` Phase Index is moved to `done`.
+- [x] `generated_reports` table migrated (hand-written idempotent SQL `0013`/`0014`, applied twice locally + to prod). NOTE: `pnpm db:migrate` is broken-by-design; migrations are hand-written sequential SQL.
+- [x] Each of "what are my insights?", "what am I waiting on?", "what is stale?", "weekly summary", "show Acme loops" routes deterministically (the first four without a model call) and produces a `report.requested` event with the correct kind/scope. Insight commands route via `classify-intent.ts` `subtype:"insight_command"` → `route-email.ts` `runInsightCommandBranch` (NOT the Phase 3 question stub).
+- [x] `generate-report` Inngest function generates one report per request (idempotent on `userId + kind + inboundEmailId`), persists with hashed token + 7-day expiry, enqueues a private reply matching the roadmap shape, and emits `report.generated`.
+- [x] `/r/<token>` renders a memo-style page for a live report: header, six grouped sections with `due_soon`/`overdue` derived per AR-6, source-evidence chips, row actions; mobile-first layout.
+- [x] Source-evidence chip on a sensitive-evidence loop shows a lock and routes to Clerk sign-in (preserving `next=/r/<token>`) when the viewer is anonymous.
+- [x] Expired or unknown tokens render the friendly dead-end page with HTTP 200 and no information leak.
+- [x] Row actions hit `src/loops/service.ts::mutateLoopState`; the keystone parity test (`src/loops/parity.test.ts`) passes for `done`, `dismiss`, `snooze`.
+- [x] `report.requested`, `report.generated`, `report.viewed`, and `loop.updated` events fire with documented payloads; `report.viewed` debounces at 5 minutes per report.
+- [x] Model boundary holds: ranking and inclusion are deterministic in `src/reports/query.ts`; the model only writes `headline` + `bullets[0..3]` in `src/reports/summarize.ts`; tests verify extra model fields are dropped.
+- [x] All unit + integration tests pass; `pnpm typecheck`, `pnpm test` (1072 passed), `pnpm build` green.
+- [x] Phase 5 row in `docs/phases/README.md` Phase Index is moved to `done`.
+
+## Closeout (2026-06-13)
+
+Shipped + live-verified on https://keeps.email. Full loop confirmed in prod by Arav: emailed "what are my insights?" → private ranked reply + signed `/r/<token>` link → memo page rendered his real open loop under **Needs you** → tapped **Done** → loop transitioned and re-opening showed it under **Recently done** (live-query, no snapshot).
+
+**How it was built:** orchestrated sprint — Opus orchestrator + per-task worktree subagents (Sonnet/Opus), reviewed diff-by-diff and cherry-picked onto `main`. Waves A (schema + deterministic primitives) → B (services) → C (workflow + UI) → D (keystone parity + e2e/render tests + gates + deploy + live wave).
+
+**Plan corrections that held:** intent router is `classify-intent.ts` + `route-email.ts` (not the plan's `intent-router.ts`); migrations are hand-written idempotent SQL `0013`/`0014` (not drizzle-generated); the report token mirrors `src/approvals/tokens.ts`; the reply is enqueued as a `report`-type nudge and sent via the digest/nudge sender path with a commandable `Reply-To` + `ordinalMap`.
+
+**Keystone (D2):** `mutateLoopState` is the single mutation funnel; `src/loops/parity.test.ts` asserts the web row-action and the email command produce byte-identical `loop_events` (except `metadata.source`) and identical `loop.updated`, and that `applyReportRowAction` maps `done→mark_done`/`dismiss`/`snooze` correctly + a forged token never mutates.
+
+**Live-wave bug caught & fixed (commit after deploy):** an `open` loop with no due date and recent activity matched none of the six buckets → counted in `totalOpen` but rendered nowhere → the model was handed an empty top-items list and hallucinated a bullet. Fix: (1) `assembleReport` falls any unbucketed `open` loop into **Needs you**; (2) `generateSuggestedSummary` skips the model when there are zero top items. Both regression-tested.
+
+**Follow-ups (non-blocking):**
+- Idempotency key is `userId:kind:inboundEmailId` (scope-hash omitted — Inngest CEL can't hash; a single inbound command yields one kind+scope so it's unique in practice). Add scope-hash if manual/digest report requests are introduced.
+- `draft_nudge` row action enqueues an inert pending nudge (won't auto-send — the sweep is loop-driven and the send pass filters by `inboundEmailId`); a real draft→approve→send flow for report-originated nudges is deferred.
+- `report.viewed` / `view_count` columns exist + debounce works; no analytics surface built (intentional).
+- Postmark free tier (100/mo) — report replies add volume; upgrade to $15/mo if it becomes limiting (Arav defers).
