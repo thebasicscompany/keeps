@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 import { getKeepsLanguageModel } from "@/agent/model";
+import { instrumentedGenerateObject } from "@/agent/instrumented-generate-object";
 
 // ── Minimal local input type (structurally compatible with ReportSections) ───
 // We only read totalOpen + sections[].rows[].loop.summary — nothing else.
@@ -47,7 +47,8 @@ async function defaultGenerateSummary(input: {
   const model = getKeepsLanguageModel();
   if (!model) return null;
 
-  const result = await generateObject({
+  const result = await instrumentedGenerateObject({
+    purpose: "summarize_report",
     model,
     // STRICT schema: all required, no .default()/.optional(), optionality via .nullable()
     schema: z.object({
@@ -65,7 +66,8 @@ async function defaultGenerateSummary(input: {
   });
 
   // Return ONLY headline + bullets — drop everything else
-  return { headline: result.object.headline, bullets: result.object.bullets };
+  const object = result.object as { headline: string; bullets: string[] };
+  return { headline: object.headline, bullets: object.bullets };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

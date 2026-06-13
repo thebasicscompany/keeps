@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 import { getKeepsLanguageModel } from "@/agent/model";
+import { instrumentedGenerateObject } from "@/agent/instrumented-generate-object";
 
 export type EmailIntent = "capture" | "command" | "approval" | "question" | "correction";
 
@@ -111,14 +111,16 @@ export type ClassifyInsightOptions = {
 const defaultGenerateEntity = async (text: string): Promise<{ entity: string } | null> => {
   const model = getKeepsLanguageModel();
   if (!model) return null;
-  const result = await generateObject({
+  const result = await instrumentedGenerateObject({
+    purpose: "classify_intent",
     model,
     schema: z.object({ kind: z.literal("entity"), entity: z.string() }),
     schemaName: "KeepsInsightEntity",
     system: "Extract the participant or company name the user wants loops for. Return the single entity name.",
     prompt: text,
   });
-  return { entity: result.object.entity };
+  const object = result.object as { kind: "entity"; entity: string };
+  return { entity: object.entity };
 };
 
 export async function classifyInsightCommand(

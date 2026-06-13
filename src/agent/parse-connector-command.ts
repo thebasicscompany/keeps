@@ -13,9 +13,12 @@
  * returning, so callers can always trust the shape.
  */
 
-import { generateObject } from "ai";
 import { connectorCommandDraftSchema, type ConnectorCommandDraft } from "@/agent/schemas";
 import { getKeepsLanguageModel } from "@/agent/model";
+import {
+  instrumentedGenerateObject,
+  type ModelCallPurpose,
+} from "@/agent/instrumented-generate-object";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -71,7 +74,16 @@ async function parseWithModel(
   const nowIso = input.now.toISOString();
   const tz = input.timezone ?? "UTC";
 
-  const result = await generateObject({
+  // Pick the purpose by the command provider on the first non-empty line: a
+  // @Calendar command is a calendar draft, everything else (incl. @Slack and
+  // unparseable) is a Slack draft. The model schema itself is unchanged.
+  const firstLine = getFirstNonEmptyLine(input.emailBody) ?? "";
+  const purpose: ModelCallPurpose = /^\s*@calendar\b/i.test(firstLine)
+    ? "draft_calendar"
+    : "draft_slack";
+
+  const result = await instrumentedGenerateObject({
+    purpose,
     model,
     schema: connectorCommandDraftSchema,
     schemaName: "ConnectorCommandDraft",

@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { instrumentedGenerateObject } from "@/agent/instrumented-generate-object";
 import {
   loopExtractionResultSchema,
   type LoopCandidate,
@@ -39,7 +39,8 @@ async function extractLoopsWithModel(
     return null;
   }
 
-  const result = await generateObject({
+  const result = await instrumentedGenerateObject({
+    purpose: "extract_loops",
     model,
     schema: loopExtractionResultSchema,
     schemaName: "KeepsLoopExtraction",
