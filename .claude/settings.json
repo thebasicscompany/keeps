@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "inngest@inngest-claude-code-plugin": true
+  }
+}
