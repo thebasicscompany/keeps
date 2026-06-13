@@ -98,3 +98,20 @@ Follow this procedure to produce an anonymized `*.case.ts` file:
    ```
 
    Zero hits (other than `@example.com`) is the bar. Only then commit.
+
+## Current case inventory
+
+`src/agent/eval/cases/` currently holds **15 synthetic cases** (prefix `synthetic-`)
+covering all loopKinds the deterministic extractor can detect, all basis values,
+the missing/relative/absolute due-date variants, the empty-body edge case, all five
+intent classes (capture / command / approval / correction / question), and the
+low-confidence "keep-from-slipping" fallback.
+
+`real-example.case.ts` is a **scaffold** with synthetic content that demonstrates
+the format a scrubbed real pilot email would take. It is **not** a real case.
+
+**The remaining ~15 anonymized REAL cases are HUMAN-GATED.**
+Arav must supply and scrub them following the procedure above before they can be
+committed. Do not fabricate real user content — synthetic wording injected into
+a "real" case file defeats the purpose of the eval (measuring extractor quality
+against authentic language patterns).
