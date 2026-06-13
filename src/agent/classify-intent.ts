@@ -1,3 +1,7 @@
+import { generateObject } from "ai";
+import { z } from "zod";
+import { getKeepsLanguageModel } from "@/agent/model";
+
 export type EmailIntent = "capture" | "command" | "approval" | "question" | "correction";
 
 export type ClassifyEmailIntentInput = {
@@ -14,9 +18,152 @@ export type ClassifyEmailIntentResult = {
    * connector command (e.g. `@Slack ...` or `@Calendar ...` at the start of
    * the email body). The route-email dispatcher uses this to branch into the
    * connector-command handler before reaching the generic command branch.
+   *
+   * Set to 'insight_command' when the insight pre-rule matches (e.g. "insights",
+   * "status", "what are my open loops", "weekly summary", etc.).
    */
-  subtype?: "connector_command";
+  subtype?: "connector_command" | "insight_command";
 };
+
+// ---------------------------------------------------------------------------
+// Insight-command types & detector
+// ---------------------------------------------------------------------------
+
+export type InsightKind = "insights" | "waiting_on" | "stale" | "weekly" | "entity";
+
+/**
+ * Deterministic: returns the insight kind if the body is an insight command, else null.
+ * For entity-shaped commands returns { kind:"entity", entityCandidate } WITHOUT resolving
+ * the entity against any participant list (that is classifyInsightCommand's job).
+ */
+export function detectInsightCommand(
+  body: string,
+): { kind: InsightKind; entityCandidate?: string } | null {
+  const trimmed = body.trim();
+
+  // insights: "insights", "what are my insights", "what are my insight?"
+  if (/^(what are my\s+)?insights?\??$/i.test(trimmed)) {
+    return { kind: "insights" };
+  }
+
+  // open loops
+  if (/^(what are\s+)?(my\s+)?open loops( this week)?\??$/i.test(trimmed)) {
+    return { kind: "insights" };
+  }
+
+  // status (alone)
+  if (/^status\??$/i.test(trimmed)) {
+    return { kind: "insights" };
+  }
+
+  // waiting_on
+  if (/^what (am i|is) waiting on\??$/i.test(trimmed)) {
+    return { kind: "waiting_on" };
+  }
+
+  // stale
+  if (/^(what is stale|stale loops?)\??$/i.test(trimmed)) {
+    return { kind: "stale" };
+  }
+
+  // weekly
+  if (/^weekly (summary|digest)\??$/i.test(trimmed)) {
+    return { kind: "weekly" };
+  }
+
+  // entity A: "show <entity> loops?"
+  const showLoopsMatch = trimmed.match(/^show\s+(.+?)\s+loops?\??$/i);
+  if (showLoopsMatch) {
+    return { kind: "entity", entityCandidate: showLoopsMatch[1] };
+  }
+
+  // entity B: "loops for/with <entity>?"
+  const loopsForMatch = trimmed.match(/^loops?\s+(?:for|with)\s+(.+?)\??$/i);
+  if (loopsForMatch) {
+    return { kind: "entity", entityCandidate: loopsForMatch[1] };
+  }
+
+  // entity C: "<entity> status?" — only if NOT "status" alone (already matched above)
+  const entityStatusMatch = trimmed.match(/^(.+?)\s+status\??$/i);
+  if (entityStatusMatch) {
+    return { kind: "entity", entityCandidate: entityStatusMatch[1] };
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// classifyInsightCommand
+// ---------------------------------------------------------------------------
+
+export type InsightClassification =
+  | { kind: "insights" | "waiting_on" | "stale" | "weekly"; scope: Record<string, never>; basis: "rule" }
+  | { kind: "entity"; scope: { entity: string }; basis: "rule" | "model" }
+  | { kind: "unknown"; scope: Record<string, never>; basis: "rule" };
+
+export type ClassifyInsightOptions = {
+  useModel?: boolean;
+  knownParticipants?: string[];
+  /** Test/DI seam. Returns the model-extracted entity, or null if no model/creds. */
+  generateEntity?: (text: string) => Promise<{ entity: string } | null>;
+};
+
+const defaultGenerateEntity = async (text: string): Promise<{ entity: string } | null> => {
+  const model = getKeepsLanguageModel();
+  if (!model) return null;
+  const result = await generateObject({
+    model,
+    schema: z.object({ kind: z.literal("entity"), entity: z.string() }),
+    schemaName: "KeepsInsightEntity",
+    system: "Extract the participant or company name the user wants loops for. Return the single entity name.",
+    prompt: text,
+  });
+  return { entity: result.object.entity };
+};
+
+export async function classifyInsightCommand(
+  text: string,
+  opts?: ClassifyInsightOptions,
+): Promise<InsightClassification> {
+  const d = detectInsightCommand(text);
+
+  if (d === null) {
+    return { kind: "unknown", scope: {}, basis: "rule" };
+  }
+
+  if (d.kind !== "entity") {
+    return { kind: d.kind, scope: {}, basis: "rule" } as InsightClassification;
+  }
+
+  // entity resolution
+  const candidate = (d.entityCandidate ?? "").trim();
+  const participants = opts?.knownParticipants ?? [];
+
+  if (
+    candidate.length > 0 &&
+    participants.some(
+      (p) =>
+        p.toLowerCase().includes(candidate.toLowerCase()) ||
+        candidate.toLowerCase().includes(p.toLowerCase()),
+    )
+  ) {
+    return { kind: "entity", scope: { entity: candidate }, basis: "rule" };
+  }
+
+  if (opts?.useModel) {
+    const generateEntity = opts.generateEntity ?? defaultGenerateEntity;
+    const ent = await generateEntity(text);
+    if (ent?.entity) {
+      return { kind: "entity", scope: { entity: ent.entity }, basis: "model" };
+    }
+  }
+
+  return { kind: "unknown", scope: {}, basis: "rule" };
+}
+
+// ---------------------------------------------------------------------------
+// classifyEmailIntent
+// ---------------------------------------------------------------------------
 
 /**
  * Classifies the intent of an inbound email using deterministic rules.
@@ -45,6 +192,18 @@ export function classifyEmailIntent({ body }: ClassifyEmailIntentInput): Classif
     };
   }
 
+  // ---- INSIGHT-COMMAND PRE-RULE (Phase 5 A3) ----
+  // Placed immediately after the connector pre-rule so connector still wins,
+  // but insight commands beat trailing-question, command-prefix, etc.
+  if (detectInsightCommand(body) !== null) {
+    return {
+      intent: "command",
+      basis: "rule",
+      matchedRule: "insight-command",
+      subtype: "insight_command",
+    };
+  }
+
   if (/^correct\b/.test(lower)) {
     return { intent: "correction", basis: "rule", matchedRule: "correction-prefix" };
   }
@@ -63,13 +222,6 @@ export function classifyEmailIntent({ body }: ClassifyEmailIntentInput): Classif
 
   if (/\?$/.test(lower) && !/(can you|could you|please|need to|waiting on)/i.test(lower)) {
     return { intent: "question", basis: "rule", matchedRule: "trailing-question" };
-  }
-
-  // Insights/status report requests (Deliverable #9). These have no trailing "?",
-  // so they would otherwise fall through to capture. Matched verbatim against the
-  // forms the question handler recognizes: "insights", "status", "what are my open loops".
-  if (/^insights\b/.test(lower) || /^status\b/.test(lower) || /what are my open loops/.test(lower)) {
-    return { intent: "question", basis: "rule", matchedRule: "insights-request" };
   }
 
   return { intent: "capture", basis: "rule", matchedRule: "capture-default" };
