@@ -220,6 +220,71 @@ export async function deleteConnectedAccount(
 }
 
 // ---------------------------------------------------------------------------
+// Raw tool execution pass-through
+// ---------------------------------------------------------------------------
+
+/** Parameters for executeComposioTool — the subset of ToolExecuteParams Keeps uses. */
+export interface ExecuteComposioToolParams {
+  /** Keeps user UUID used as the Composio user/entity ID. */
+  userId: string;
+  /** Action-specific arguments (snake_case keys, per the Composio tool schema). */
+  arguments: Record<string, unknown>;
+  /**
+   * The exact connected account (ca_…) to execute through. RECOMMENDED — pins
+   * execution to the account Keeps approved instead of letting Composio resolve
+   * by (userId, toolkit) and possibly firing through a stale account.
+   */
+  connectedAccountId?: string;
+}
+
+/**
+ * Universal Composio response wrapper. Every tool resolves to this shape.
+ * `successful` is the gate; the upstream provider payload lives under `data`;
+ * `error` is a human string when the action failed.
+ *
+ * NOTE: tools.execute does NOT throw on action failure — it resolves with
+ * `successful: false`. It throws only for transport/client errors (network,
+ * 401 bad key, malformed request). Callers branch on `successful` and wrap the
+ * call in try/catch for transport errors.
+ *
+ * @see RESEARCH-COMPOSIO.md Q5/Q7
+ */
+export interface ComposioToolResult {
+  data: Record<string, unknown>;
+  error: string | null;
+  successful: boolean;
+}
+
+/**
+ * Thin pass-through to `composio.tools.execute(slug, { userId, arguments, connectedAccountId })`.
+ *
+ * Wave B transports (Slack, Calendar) call this instead of touching
+ * @composio/core directly. It does no error mapping or branching — it returns
+ * the universal `{ data, error, successful }` wrapper verbatim so callers can
+ * apply their own typed result mapping. Transport/client errors propagate
+ * (this does not catch them).
+ *
+ * Verified against: @composio/core 0.10.0 Tools.execute signature
+ * @see node_modules/@composio/core/dist/composio-DRl6WCI9.d.mts line 412
+ * @see RESEARCH-COMPOSIO.md Q5
+ */
+export async function executeComposioTool(
+  slug: string,
+  params: ExecuteComposioToolParams,
+): Promise<ComposioToolResult> {
+  const result = await getComposioClient().tools.execute(slug, {
+    userId: params.userId,
+    arguments: params.arguments,
+    connectedAccountId: params.connectedAccountId,
+  });
+  return {
+    data: result.data,
+    error: result.error,
+    successful: result.successful,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Webhook signature verification
 // ---------------------------------------------------------------------------
 
