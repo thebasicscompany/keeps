@@ -59,6 +59,11 @@ export const auditActionEnum = pgEnum("audit_action", [
   "connector.action_failed",
   "connector.recipient_ambiguous",
   "policy.authorize_denied",
+  // Phase 5 additions
+  "report.requested",
+  "report.generated",
+  "report.viewed",
+  "report.action_applied",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -134,6 +139,15 @@ export const connectorActionStatusEnum = pgEnum("connector_action_status", [
   "completed",
   "failed",
   "cancelled",
+]);
+
+// Phase 5: Generated report enum
+export const generatedReportKindEnum = pgEnum("generated_report_kind", [
+  "insights",
+  "waiting_on",
+  "stale",
+  "weekly",
+  "entity",
 ]);
 
 export const users = pgTable(
@@ -602,6 +616,43 @@ export const approvalRequests = pgTable(
   }),
 );
 
+// Phase 5: Generated reports table
+export const generatedReports = pgTable(
+  "generated_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: generatedReportKindEnum("kind").notNull(),
+    scope: jsonb("scope").notNull().default({}),
+    summary: text("summary").notNull().default(""),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+    viewCount: integer("view_count").notNull().default(0),
+    requestedVia: text("requested_via").notNull(),
+    requestInboundEmailId: uuid("request_inbound_email_id").references(
+      () => inboundEmails.id,
+      { onDelete: "set null" },
+    ),
+    requestNudgeId: uuid("request_nudge_id").references(() => nudges.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex("generated_reports_token_hash_unique").on(table.tokenHash),
+    userCreatedIdx: index("generated_reports_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    expiresIdx: index("generated_reports_expires_idx").on(table.expiresAt),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -627,3 +678,6 @@ export type ConnectorAccount = typeof connectorAccounts.$inferSelect;
 export type NewConnectorAccount = typeof connectorAccounts.$inferInsert;
 export type ConnectorAction = typeof connectorActions.$inferSelect;
 export type NewConnectorAction = typeof connectorActions.$inferInsert;
+// Phase 5 additions
+export type GeneratedReport = typeof generatedReports.$inferSelect;
+export type NewGeneratedReport = typeof generatedReports.$inferInsert;
