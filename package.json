@@ -17,6 +17,7 @@
     "@clerk/nextjs": "^7.5.2",
     "@composio/core": "^0.10.0",
     "@next/env": "16.2.9",
+    "@sentry/nextjs": "^10.57.0",
     "@tailwindcss/postcss": "4.3.0",
     "ai": "6.0.202",
     "class-variance-authority": "0.7.1",
