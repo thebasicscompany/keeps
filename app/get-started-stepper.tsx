@@ -551,6 +551,19 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
               />
             ))}
           </div>
+
+          {/* Privacy promise — visible on all steps */}
+          <p className="mt-5 text-[13px] leading-[1.6] font-medium text-[#6F6F66]">
+            Raw email bodies are deleted after 30 days by default. Your extracted
+            loops stay until you remove them. You can view, export, or delete all
+            your data — including your full account — any time from Settings.{" "}
+            <Link
+              href={"/privacy" as Route}
+              className="font-semibold text-[#14140F] underline underline-offset-2 hover:text-[#1E6B4F]"
+            >
+              Privacy policy
+            </Link>
+          </p>
         </div>
       </section>
     </main>
