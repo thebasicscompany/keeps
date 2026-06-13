@@ -50,6 +50,15 @@ export const auditActionEnum = pgEnum("audit_action", [
   "approval.expired",
   "approval.executed",
   "approval.execution_failed",
+  // Phase 4 additions
+  "connector.account_connected",
+  "connector.account_revoked",
+  "connector.account_auth_error",
+  "connector.action_requested",
+  "connector.action_executed",
+  "connector.action_failed",
+  "connector.recipient_ambiguous",
+  "policy.authorize_denied",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -103,6 +112,29 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 ]);
 
 export const nudgeStatusEnum = pgEnum("nudge_status", ["pending", "sent", "skipped"]);
+
+// Phase 4: Connector enums
+export const connectorProviderEnum = pgEnum("connector_provider", ["slack", "google_calendar"]);
+
+export const connectorAccountStatusEnum = pgEnum("connector_account_status", [
+  "active",
+  "revoked",
+  "auth_error",
+  "disabled",
+]);
+
+export const connectorActionKindEnum = pgEnum("connector_action_kind", [
+  "slack_dm",
+  "calendar_event",
+]);
+
+export const connectorActionStatusEnum = pgEnum("connector_action_status", [
+  "pending",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 export const users = pgTable(
   "users",
@@ -467,6 +499,83 @@ export const drafts = pgTable(
   }),
 );
 
+// Phase 4: Connector tables
+export const connectorAccounts = pgTable(
+  "connector_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: connectorProviderEnum("provider").notNull(),
+    composioConnectedAccountId: text("composio_connected_account_id").notNull(),
+    composioEntityId: text("composio_entity_id").notNull(),
+    externalAccountEmail: text("external_account_email"),
+    externalAccountLabel: text("external_account_label"),
+    scopes: jsonb("scopes").notNull().default([]),
+    status: connectorAccountStatusEnum("status").notNull().default("active"),
+    statusReason: text("status_reason"),
+    metadata: jsonb("metadata").notNull().default({}),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userProviderIdx: uniqueIndex("connector_accounts_user_provider_unique").on(
+      table.userId,
+      table.provider,
+    ),
+    composioConnectedAccountIdx: uniqueIndex("connector_accounts_composio_connected_account_unique").on(
+      table.composioConnectedAccountId,
+    ),
+    userIdx: index("connector_accounts_user_idx").on(table.userId),
+    providerStatusIdx: index("connector_accounts_provider_status_idx").on(table.provider, table.status),
+  }),
+);
+
+export const connectorActions = pgTable(
+  "connector_actions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    connectorAccountId: uuid("connector_account_id")
+      .notNull()
+      .references(() => connectorAccounts.id, { onDelete: "restrict" }),
+    inboundEmailId: uuid("inbound_email_id").references(() => inboundEmails.id, {
+      onDelete: "set null",
+    }),
+    loopId: uuid("loop_id").references(() => loops.id, { onDelete: "set null" }),
+    draftId: uuid("draft_id").references(() => drafts.id, { onDelete: "set null" }),
+    approvalRequestId: uuid("approval_request_id").references(() => approvalRequests.id, {
+      onDelete: "set null",
+    }),
+    kind: connectorActionKindEnum("kind").notNull(),
+    payload: jsonb("payload").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: connectorActionStatusEnum("status").notNull().default("pending"),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    executedAt: timestamp("executed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    idempotencyKeyIdx: uniqueIndex("connector_actions_idempotency_key_unique").on(
+      table.idempotencyKey,
+    ),
+    userStatusIdx: index("connector_actions_user_status_idx").on(table.userId, table.status),
+    connectorAccountIdx: index("connector_actions_connector_account_idx").on(
+      table.connectorAccountId,
+    ),
+    approvalRequestIdx: index("connector_actions_approval_request_idx").on(table.approvalRequestId),
+  }),
+);
+
 export const approvalRequests = pgTable(
   "approval_requests",
   {
@@ -513,3 +622,8 @@ export type NewDraft = typeof drafts.$inferInsert;
 export type ApprovalRequest = typeof approvalRequests.$inferSelect;
 export type NewApprovalRequest = typeof approvalRequests.$inferInsert;
 export type ApprovalStatus = typeof approvalStatusEnum.enumValues[number];
+// Phase 4 additions
+export type ConnectorAccount = typeof connectorAccounts.$inferSelect;
+export type NewConnectorAccount = typeof connectorAccounts.$inferInsert;
+export type ConnectorAction = typeof connectorActions.$inferSelect;
+export type NewConnectorAction = typeof connectorActions.$inferInsert;
