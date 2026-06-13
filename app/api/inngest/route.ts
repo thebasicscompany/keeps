@@ -20,6 +20,7 @@ import { generateDataExportFunction } from "@/workflows/functions/generate-data-
 import { sendExportEmailFunction } from "@/workflows/functions/send-export-email";
 import { scoreNudgeFeedbackFunction } from "@/workflows/functions/score-nudge-feedback";
 import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-feedback";
+import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-connector-failure";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -52,5 +53,7 @@ export const { GET, POST, PUT } = serve({
     // Phase 6 B5: daily quality-metric crons
     scoreNudgeFeedbackFunction,
     scoreDraftFeedbackFunction,
+    // Phase 6 C3: connector failure alerting (connector.action_failed subscriber)
+    notifyConnectorFailureFunction,
   ],
 });
