@@ -178,3 +178,23 @@ describe("generateSuggestedSummary", () => {
     expect(result.bullets).toEqual(["Foo", "Bar"]);
   });
 });
+
+// ── Phase 5 live-wave fix: never call the model with empty top-items ───────────
+
+describe("empty top-items guard (live-wave regression)", () => {
+  it("does NOT invoke the model when there are no top summaries, even with useModel", async () => {
+    let called = false;
+    const result = await generateSuggestedSummary({
+      totalOpen: 1,
+      sections: [{ rows: [] }, { rows: [] }],
+      useModel: true,
+      generateSummary: async () => {
+        called = true;
+        return { headline: "HALLUCINATED", bullets: ["1. Top items: [no additional details provided]"] };
+      },
+    });
+    expect(called).toBe(false); // model never reached → no hallucination
+    expect(result.headline).toBe("You have 1 open loop.");
+    expect(result.bullets).toEqual([]);
+  });
+});

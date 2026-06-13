@@ -93,6 +93,14 @@ export async function generateSuggestedSummary(
     return deterministicFallback(totalOpen, topSummaries);
   }
 
+  // Never hand the model an empty top-items list — with nothing to rephrase it
+  // hallucinates (the Phase 5 live wave produced a "Top items: [no additional details
+  // provided]" bullet from an empty list). With no items, the deterministic empty-state
+  // is correct and honest.
+  if (topSummaries.length === 0) {
+    return deterministicFallback(totalOpen, topSummaries);
+  }
+
   // Model path
   let modelResult: { headline: string; bullets: string[] } | null = null;
   try {

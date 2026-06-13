@@ -621,3 +621,43 @@ describe("excluded statuses", () => {
     expect(allIds).not.toContain(loop.id);
   });
 });
+
+// ── Phase 5 live-wave fix: open loops never orphan ─────────────────────────────
+
+describe("open-loop fallback (live-wave regression)", () => {
+  it("places an undated, recently-active open loop into needs_you (not invisible)", () => {
+    // Exactly the prod case: status open, no due date, updated ~18h ago (not stale).
+    const loop = makeLoop({
+      status: "open",
+      dueAt: null,
+      summary: "Send the onboarding document to the design partner",
+    });
+    const result = assembleReport({
+      kind: "insights",
+      scope: {},
+      now: NOW,
+      loops: [loop],
+      loopActivity: [activityAt(loop.id, new Date(NOW.getTime() - 18 * HOUR))],
+    });
+
+    expect(result.totalOpen).toBe(1);
+    // It must appear somewhere — specifically Needs you.
+    expect(sectionLoopIds(result, "needs_you")).toContain(loop.id);
+    // And it is the top row across all sections (so summarize gets a real item).
+    const firstRow = result.sections.flatMap((s) => s.rows)[0];
+    expect(firstRow?.loop.id).toBe(loop.id);
+  });
+
+  it("does not double-place: an open loop already in due_soon stays out of needs_you fallback", () => {
+    const loop = makeLoop({ status: "open", dueAt: new Date(NOW.getTime() + 5 * DAY) });
+    const result = assembleReport({
+      kind: "insights",
+      scope: {},
+      now: NOW,
+      loops: [loop],
+      loopActivity: [activityAt(loop.id, NOW)],
+    });
+    expect(sectionLoopIds(result, "due_soon")).toContain(loop.id);
+    expect(sectionLoopIds(result, "needs_you")).not.toContain(loop.id);
+  });
+});

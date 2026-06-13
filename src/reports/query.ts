@@ -251,6 +251,18 @@ export function assembleReport(input: {
       assigned = true;
     }
 
+    // Fallback: an `open` loop that matched no urgency/stale bucket (e.g. no due date and
+    // recently active) still needs the user. Surface it under "Needs you" so EVERY
+    // counted-open loop appears somewhere — otherwise such loops are invisible in the
+    // report even though they are included in `totalOpen` (caught in the Phase 5 live
+    // wave: an undated, freshly-updated open loop produced an empty report + a hallucinated
+    // model summary). waiting_on_me is always caught by section 1 and waiting_on_other by
+    // section 4, so `open` is the only status that can orphan here.
+    if (!assigned && loop.status === "open") {
+      buckets.get("needs_you")!.push(loop);
+      assigned = true;
+    }
+
     void assigned; // suppress unused warning — intentional fallthrough for unmatched loops
   }
 
