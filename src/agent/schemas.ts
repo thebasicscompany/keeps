@@ -154,10 +154,30 @@ export const connectorCommandDraftSchema = z.object({
 //     tool.
 // ---------------------------------------------------------------------------
 
+// slack_dm execute payload — FROZEN-PAYLOAD INVARIANT (load-bearing).
+//
+// What the user approves is byte-for-byte what executes. The recipient is
+// resolved UPSTREAM (src/connectors/recipient.ts) BEFORE the payload is frozen;
+// the executor never resolves at execute time. So we carry both:
+//   - `channel` — the RESOLVED Slack destination id (a user id `U…`, or a `D…`
+//     DM channel id). This is the value `SLACK_SEND_MESSAGE` targets verbatim.
+//   - `recipientName` / `recipientEmail` — human-display fields so the approval
+//     email can render "To: Maya (maya@x.com)" while the executor targets the
+//     frozen `channel`. Both nullable (self-DMs / email-less Slack users).
+//
+// Strict-mode consistency: nullable-not-optional throughout. `channel` is the
+// one non-null required field — a slack_dm cannot execute without a resolved
+// destination, so freezing a non-null channel is the whole point.
 export const slackDmPayloadSchema = z.object({
   kind: z.literal("slack_dm"),
   destination: connectorDestinationSchema,
   message: z.string().nullable(),
+  /** Resolved Slack destination id (user id `U…` or DM channel id `D…`) — frozen at approval, targeted verbatim at execute. */
+  channel: z.string(),
+  /** Human-display recipient name for the approval email. Null for self-DMs. */
+  recipientName: z.string().nullable(),
+  /** Human-display recipient email for the approval email. Null when unknown. */
+  recipientEmail: z.string().nullable(),
 });
 
 export const calendarEventPayloadSchema = z.object({
@@ -170,6 +190,12 @@ export const calendarEventPayloadSchema = z.object({
   reminderMinutesBefore: z.number().nullable(),
   /** Optional back-link to the source loop embedded in the Calendar event description */
   description: z.string().nullable(),
+  /**
+   * Attendee emails to invite. Presence (non-empty) flips reversibility from
+   * 'reversible' (self-only event → confirmation window) to 'irreversible'
+   * (invites others → hard approval). Null/empty = self-only event.
+   */
+  attendees: z.array(z.string()).nullable(),
 });
 
 export const connectorActionPayloadSchema = z.discriminatedUnion("kind", [

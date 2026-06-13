@@ -45,6 +45,9 @@ const slackDmPayload: ConnectorActionPayload = {
   kind: "slack_dm",
   destination: { kind: "person", nameText: "Maya", emailText: null },
   message: "I'll send the deck Friday",
+  channel: "U07MAYA123",
+  recipientName: "Maya",
+  recipientEmail: "maya@example.com",
 };
 
 const calendarEventPayload: ConnectorActionPayload = {
@@ -55,6 +58,7 @@ const calendarEventPayload: ConnectorActionPayload = {
   durationMinutes: 30,
   reminderMinutesBefore: 10,
   description: "https://keeps.ai/loops/abc-123",
+  attendees: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +214,9 @@ describe("connectorActionPayloadSchema", () => {
       kind: "slack_dm",
       destination: { kind: "self", nameText: null, emailText: null },
       message: null,
+      channel: "U07SELF999",
+      recipientName: null,
+      recipientEmail: null,
     };
     expect(() => connectorActionPayloadSchema.parse(nullPayload)).not.toThrow();
   });
@@ -223,6 +230,7 @@ describe("connectorActionPayloadSchema", () => {
       durationMinutes: null,
       reminderMinutesBefore: null,
       description: null,
+      attendees: null,
     };
     expect(() => connectorActionPayloadSchema.parse(nullPayload)).not.toThrow();
   });
