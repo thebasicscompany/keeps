@@ -94,6 +94,7 @@ export const sweepDigestsFunction = inngest.createFunction(
   {
     id: "sweep-digests",
     triggers: { cron: "0 * * * *" },
+    retries: 2,
   },
   async ({ step }) => {
     // Step 1: mint `now` + run pure sweep logic.

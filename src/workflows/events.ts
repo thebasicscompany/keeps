@@ -256,6 +256,21 @@ export type EventMap = {
   };
 
   // -------------------------------------------------------------------------
+  // Phase 6 C2: nudge final-failure event (deliverable 13/12)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted by send-nudge's `onFailure` handler after all retries are exhausted.
+   * The nudge row (if created) has already been flipped to status='failed'.
+   * Downstream observers (alerting, ops dashboard) can react without re-querying.
+   */
+  "nudge.failed": {
+    nudgeId: string;
+    userId: string;
+    error: string;
+  };
+
+  // -------------------------------------------------------------------------
   // Phase 6 C1: dead-letter / failed-processing events (deliverable 14)
   // -------------------------------------------------------------------------
 

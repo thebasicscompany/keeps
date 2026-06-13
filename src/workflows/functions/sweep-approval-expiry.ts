@@ -126,7 +126,7 @@ export async function sweepApprovalExpiry(input: {
 // ---------------------------------------------------------------------------
 
 export const sweepApprovalExpiryFunction = inngest.createFunction(
-  { id: "sweep-approval-expiry", triggers: { cron: "*/15 * * * *" } },
+  { id: "sweep-approval-expiry", triggers: { cron: "*/15 * * * *" }, retries: 2 },
   async ({ step }) => {
     // Mint `now` once and read it back from the memoized return, then scan. Each
     // expiry below is its own send-only step with a keyed name so re-execution

@@ -328,6 +328,7 @@ export const sendDigestFunction = inngest.createFunction(
   {
     id: "send-digest",
     triggers: { event: "digest.daily_due" },
+    retries: 3,
   },
   async ({ event, runId, step }) => {
     const userId = event.data.userId;

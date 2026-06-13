@@ -253,7 +253,7 @@ export async function sweepConnectorStatus(input: {
 // ---------------------------------------------------------------------------
 
 export const sweepConnectorStatusFunction = inngest.createFunction(
-  { id: "sweep-connector-status", triggers: { cron: "*/15 * * * *" } },
+  { id: "sweep-connector-status", triggers: { cron: "*/15 * * * *" }, retries: 2 },
   async ({ step }) => {
     // Step 1: mint `now` once + load the working set. Read both back from the
     // memoized return so re-execution shares the same instant and the same list.

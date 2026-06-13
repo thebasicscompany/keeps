@@ -126,6 +126,7 @@ export const sweepNudgesFunction = inngest.createFunction(
   {
     id: "sweep-nudges",
     triggers: { cron: "*/10 * * * *" },
+    retries: 2,
   },
   async ({ step }) => {
     // Step 1: mint now inside step.run so it is memoized across re-executions.

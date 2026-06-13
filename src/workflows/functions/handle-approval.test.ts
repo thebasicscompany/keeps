@@ -206,6 +206,9 @@ class FakeNudgeRepository implements NudgeRepository {
   async deferLoopNextCheck(): Promise<void> {}
   async writeLoopEvent(): Promise<void> {}
   async writeAudit(): Promise<void> {}
+  async findLatestNudgeByRunId(_runId: string): Promise<{ id: string; userId: string } | null> { return null; }
+  async findNudgeStatus(_nudgeId: string): Promise<string | null> { return null; }
+  async markNudgeFailed(_input: { nudgeId: string; extraMetadata: Record<string, unknown> }): Promise<void> {}
 }
 
 type LifecycleAudit = {

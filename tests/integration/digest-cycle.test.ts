@@ -92,6 +92,10 @@ class InMemoryNudgeRepository implements NudgeRepository {
   async writeAudit(input: Parameters<NudgeRepository["writeAudit"]>[0]): Promise<void> {
     this.audits.push(input);
   }
+
+  async findLatestNudgeByRunId(_runId: string): Promise<{ id: string; userId: string } | null> { return null; }
+  async findNudgeStatus(_nudgeId: string): Promise<string | null> { return null; }
+  async markNudgeFailed(_input: { nudgeId: string; extraMetadata: Record<string, unknown> }): Promise<void> {}
 }
 
 /**

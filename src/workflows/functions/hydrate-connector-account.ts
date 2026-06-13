@@ -201,6 +201,7 @@ export const hydrateConnectorAccountFunction = inngest.createFunction(
     // Re-deliveries of the same connect event re-hydrate the same row — cheap and
     // idempotent, but keyed so a duplicate event doesn't spawn parallel fetches.
     idempotency: "event.data.connectorAccountId",
+    retries: 3,
   },
   async ({ event, step }) => {
     const connectorAccountId = event.data.connectorAccountId as string;

@@ -288,6 +288,7 @@ export const generateReportFunction = inngest.createFunction(
     // deferred — a single inbound command yields exactly one kind+scope, so this key
     // is unique per request.)
     idempotency: "event.data.userId + ':' + event.data.kind + ':' + event.data.inboundEmailId",
+    retries: 3,
   },
   async ({ event, step }) => {
     const userId = event.data.userId as string;

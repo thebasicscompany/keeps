@@ -301,6 +301,9 @@ class FakeNudgeRepository implements NudgeRepository {
   async deferLoopNextCheck(): Promise<void> {}
   async findCandidateById(): Promise<null> { return null; }
   async findUserEmail(): Promise<string | null> { return null; }
+  async findLatestNudgeByRunId(_runId: string): Promise<{ id: string; userId: string } | null> { return null; }
+  async findNudgeStatus(_nudgeId: string): Promise<string | null> { return null; }
+  async markNudgeFailed(_input: { nudgeId: string; extraMetadata: Record<string, unknown> }): Promise<void> {}
 }
 
 class FakeEmailSender implements EmailSender {

@@ -202,6 +202,10 @@ class FakeNudgeRepository implements NudgeRepository {
     });
     return { id };
   }
+
+  async findLatestNudgeByRunId(_runId: string): Promise<{ id: string; userId: string } | null> { return null; }
+  async findNudgeStatus(_nudgeId: string): Promise<string | null> { return null; }
+  async markNudgeFailed(_input: { nudgeId: string; extraMetadata: Record<string, unknown> }): Promise<void> {}
 }
 
 type LifecycleAudit = {

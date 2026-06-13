@@ -384,6 +384,7 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     triggers: { event: "connector.action_requested" },
     // V0: one connector command per inbound email.
     idempotency: "event.data.inboundEmailId",
+    retries: 3,
   },
   async ({ event, step }) => withInngestSentry(
     { functionId: "handle-connector-command", eventId: event.id },

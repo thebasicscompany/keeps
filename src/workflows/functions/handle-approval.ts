@@ -467,6 +467,7 @@ export const handleApprovalFunction = inngest.createFunction(
     id: "handle-approval",
     triggers: { event: "approval.requested" },
     idempotency: "event.data.approvalId",
+    retries: 3,
   },
   async ({ event, step, runId }) => {
     const approvalId = event.data.approvalId as string;

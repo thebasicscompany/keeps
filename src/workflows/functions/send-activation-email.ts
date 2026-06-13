@@ -334,6 +334,7 @@ export const sendActivationEmailFunction = inngest.createFunction(
     id: "send-activation-email",
     triggers: { event: "email.sender_unknown" },
     idempotency: "event.data.pendingInboundEmailId",
+    retries: 3,
   },
   async ({ event, step }) => {
     const pendingInboundEmailId = event.data.pendingInboundEmailId as string;

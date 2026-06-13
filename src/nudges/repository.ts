@@ -12,7 +12,7 @@
  * 'private_reply', 'approval', and 'expiry' do not count (per Deliverable #6).
  */
 
-import { and, count, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db/client";
 import { auditLog, loopEvents, loops, nudges, users } from "@/db/schema";
@@ -126,6 +126,33 @@ export interface NudgeRepository {
     userId: string;
     action: "nudge.sent" | "digest.sent" | "report.generated";
     metadata: Record<string, unknown>;
+  }): Promise<void>;
+
+  /**
+   * Finds the most-recent nudge row whose metadata contains `inngestRunId` equal
+   * to the given value. Returns null when no match exists.
+   *
+   * Used by send-nudge's onFailure handler to locate the nudge row that was
+   * created by the failed run so it can be marked status='failed'.
+   */
+  findLatestNudgeByRunId(inngestRunId: string): Promise<{ id: string; userId: string } | null>;
+
+  /**
+   * Returns just the status of a nudge row by id.
+   * Used by send-nudge's send step to defensively re-read status before sending,
+   * so an Inngest replay of the step never double-sends a nudge already marked 'sent'.
+   * Returns null when the row does not exist.
+   */
+  findNudgeStatus(nudgeId: string): Promise<string | null>;
+
+  /**
+   * Marks a nudge row as status='failed', merging the supplied extra metadata
+   * (e.g. `{ reason: 'inngest_final_failure', error: '...' }`) into the existing
+   * JSON without clobbering existing keys.
+   */
+  markNudgeFailed(input: {
+    nudgeId: string;
+    extraMetadata: Record<string, unknown>;
   }): Promise<void>;
 }
 
@@ -324,5 +351,44 @@ export class DrizzleNudgeRepository implements NudgeRepository {
       actorType: "system",
       metadata: input.metadata,
     });
+  }
+
+  async findLatestNudgeByRunId(
+    inngestRunId: string,
+  ): Promise<{ id: string; userId: string } | null> {
+    // Use Postgres JSON containment (@>) to find rows where metadata contains
+    // {"inngestRunId": "<runId>"}. Orders by createdAt DESC to get the most recent.
+    const [row] = await this.db
+      .select({ id: nudges.id, userId: nudges.userId })
+      .from(nudges)
+      .where(sql`${nudges.metadata} @> ${JSON.stringify({ inngestRunId })}::jsonb`)
+      .orderBy(desc(nudges.createdAt))
+      .limit(1);
+
+    return row ?? null;
+  }
+
+  async findNudgeStatus(nudgeId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ status: nudges.status })
+      .from(nudges)
+      .where(eq(nudges.id, nudgeId))
+      .limit(1);
+
+    return row?.status ?? null;
+  }
+
+  async markNudgeFailed(input: {
+    nudgeId: string;
+    extraMetadata: Record<string, unknown>;
+  }): Promise<void> {
+    // Merge extra metadata into the existing JSONB column without clobbering it.
+    await this.db
+      .update(nudges)
+      .set({
+        status: "failed",
+        metadata: sql`${nudges.metadata} || ${JSON.stringify(input.extraMetadata)}::jsonb`,
+      })
+      .where(eq(nudges.id, input.nudgeId));
   }
 }

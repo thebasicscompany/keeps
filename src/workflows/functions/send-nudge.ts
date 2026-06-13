@@ -14,6 +14,14 @@
  * Idempotency: we do NOT set a custom Inngest idempotency key so that future
  * legitimate nudges for the same loop are not suppressed. Instead, the in-function
  * re-validation (checkNudge) is the authoritative guard against double-sends.
+ *
+ * Retry policy: retries=5. After all retries are exhausted, the onFailure handler
+ * marks the nudge row status='failed' (if one was created) and emits `nudge.failed`.
+ *
+ * Deliverable 12 (outbound idempotency): the send step sets
+ * X-Keeps-Idempotency-Key: nudge-<nudgeId> on the outbound email and defensively
+ * re-reads nudges.status before sending — if the row is already 'sent' the step
+ * returns an already-sent marker so an Inngest replay never double-sends.
  */
 
 import { randomUUID } from "node:crypto";
@@ -214,6 +222,8 @@ export async function sendNudgeEmail(
     // Reply-To is a top-level field — never inside headers (Postmark rule)
     replyTo,
     mailboxHash,
+    // Deliverable 12: outbound idempotency header so Postmark dedups replays.
+    headers: { "X-Keeps-Idempotency-Key": `nudge-${nudgeId}` },
   };
 
   const { providerMessageId } = await sender.send(email);
@@ -229,7 +239,7 @@ export async function sendNudgeEmail(
     toEmail,
     subject: composed.subject,
     textBody: composed.textBody,
-    headers: {},
+    headers: { "X-Keeps-Idempotency-Key": `nudge-${nudgeId}` },
     replyTo,
     inReplyTo: null,
     referencesHeader: null,
@@ -266,6 +276,90 @@ export async function sendNudgeEmail(
 }
 
 // ---------------------------------------------------------------------------
+// onFailure handler — exported for unit testing (Deliverable 13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Called by Inngest after all retries (5) are exhausted for a send-nudge run.
+ *
+ * Resolution strategy:
+ *   1. The create-nudge-row step stamps `inngestRunId: runId` into the nudge row
+ *      metadata. We call `repository.findLatestNudgeByRunId(runId)` to locate it.
+ *   2. If found, mark status='failed' (merging error metadata) and emit nudge.failed.
+ *   3. If not found (failure pre-dates the create-nudge-row step), still emit
+ *      nudge.failed with nudgeId="" so downstream can react.
+ *
+ * NOTE: Inngest's onFailure `event` has shape:
+ *   { data: { event: <original event>, error: <JsonError> } }
+ * The original event's runId is NOT available in onFailure, but Inngest passes
+ * the failed run id as `event.data.run_id` (v4 schema).
+ */
+export async function sendNudgeOnFailure({
+  event,
+  error,
+  step,
+  repository,
+}: {
+  event: {
+    data: {
+      /** The original loop.nudge_due event */
+      event: { data: unknown; name?: string };
+      /** The terminal error from Inngest */
+      error: { message?: string; name?: string; stack?: string };
+      /** Inngest v4: the failed run id */
+      run_id?: string;
+    };
+  };
+  error: { message?: string };
+  step: {
+    run: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
+    sendEvent: (id: string, evt: { name: string; data: unknown }) => Promise<void>;
+  };
+  repository?: NudgeRepository;
+}): Promise<void> {
+  const originalData = (event.data.event?.data ?? {}) as Record<string, unknown>;
+  const userId = typeof originalData.userId === "string" ? originalData.userId : null;
+  const runId = event.data.run_id ?? null;
+  const errorMessage =
+    error?.message ?? event.data.error?.message ?? "send-nudge failed (no message).";
+
+  const nudgeInfo = await step.run("mark-nudge-failed", async () => {
+    const repo = repository ?? new DrizzleNudgeRepository();
+
+    let nudgeId: string | null = null;
+    let resolvedUserId: string | null = userId;
+
+    // Primary: find by inngestRunId stamped in nudge row metadata (Deliverable 13).
+    if (runId) {
+      const found = await repo.findLatestNudgeByRunId(runId);
+      if (found) {
+        nudgeId = found.id;
+        resolvedUserId = found.userId;
+        await repo.markNudgeFailed({
+          nudgeId: found.id,
+          extraMetadata: {
+            reason: "inngest_final_failure",
+            error: errorMessage,
+            failedAt: new Date().toISOString(),
+          },
+        });
+      }
+    }
+
+    return { nudgeId, resolvedUserId };
+  });
+
+  await step.sendEvent("emit-nudge-failed", {
+    name: "nudge.failed",
+    data: {
+      nudgeId: nudgeInfo.nudgeId ?? "",
+      userId: nudgeInfo.resolvedUserId ?? userId ?? "",
+      error: errorMessage,
+    } satisfies EventMap["nudge.failed"],
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Inngest wrapper — thin binding of Drizzle ports to the pure core
 // ---------------------------------------------------------------------------
 
@@ -273,8 +367,24 @@ export const sendNudgeFunction = inngest.createFunction(
   {
     id: "send-nudge",
     triggers: { event: "loop.nudge_due" },
+    // Deliverable 13: explicit retry policy. 5 retries gives Inngest ~31 min of
+    // total backoff before the run is declared terminal and onFailure fires.
+    retries: 5,
     // No custom idempotency key — rely on in-function re-validation so future
     // legitimate nudges for the same loop are not suppressed by Inngest dedup.
+    //
+    // Dead-letter rail: after the 5 retries above are exhausted, flip the nudge
+    // row to status='failed' and emit `nudge.failed` for downstream observability.
+    onFailure: async ({ event, error, step }) => {
+      // Cast to unknown first: the Inngest SDK's FailureEventPayload / StepTools
+      // generics don't align with the hand-written interface used for unit-testing.
+      // The runtime shape matches what sendNudgeOnFailure reads.
+      await sendNudgeOnFailure({
+        event: event as unknown as Parameters<typeof sendNudgeOnFailure>[0]["event"],
+        error: error as { message?: string },
+        step: step as unknown as Parameters<typeof sendNudgeOnFailure>[0]["step"],
+      });
+    },
   },
   async ({ event, step, runId }) => withInngestSentry(
     { functionId: "send-nudge", eventId: event.id },
@@ -321,6 +431,7 @@ export const sendNudgeFunction = inngest.createFunction(
         subject: composed.subject,
         body: composed.textBody,
         type: "nudge",
+        // Stamp inngestRunId so onFailure can find this row by runId.
         metadata: { ...composed.metadata, inngestRunId: runId } as unknown as Record<string, unknown>,
         scheduledFor: null,
       });
@@ -333,11 +444,32 @@ export const sendNudgeFunction = inngest.createFunction(
     });
 
     // Step 3: send-only — Postmark/dev call with NO DB writes.
+    // Deliverable 12: defensively re-read nudges.status before sending so an
+    // Inngest replay of this step never double-sends a nudge that already went out.
     const sendResult = await step.run("send-nudge-email", async () => {
+      // Deliverable 12 idempotency guard: re-read nudges.status before sending.
+      // If this step is being replayed and the record-nudge-sent step already
+      // committed (status='sent'), skip the Postmark call and return an
+      // already-sent sentinel so the record step is still idempotent.
+      const repository = new DrizzleNudgeRepository();
+      const currentStatus = await repository.findNudgeStatus(nudgeRowResult.nudgeId);
+      if (currentStatus === "sent") {
+        return {
+          providerMessageId: "",
+          skipped: false,
+          alreadySent: true,
+          provider: "dev" as const,
+          replyTo: buildNudgeReplyTo(nudgeRowResult.nudgeId, getOptionalEnv().POSTMARK_REPLY_TO_BASE),
+          mailboxHash: `n_${nudgeRowResult.nudgeId}`,
+        };
+      }
+
       const env = getOptionalEnv();
       const sender = getEmailSender();
       const replyTo = buildNudgeReplyTo(nudgeRowResult.nudgeId, env.POSTMARK_REPLY_TO_BASE);
 
+      // Deliverable 12: idempotency header so Postmark deduplicates replays on
+      // its end (belt-and-suspenders alongside the status re-read above).
       const email: OutboundEmail = {
         userId: checkResult.userId,
         nudgeId: nudgeRowResult.nudgeId,
@@ -346,17 +478,34 @@ export const sendNudgeFunction = inngest.createFunction(
         textBody: nudgeRowResult.textBody,
         replyTo,
         mailboxHash: `n_${nudgeRowResult.nudgeId}`,
+        headers: { "X-Keeps-Idempotency-Key": `nudge-${nudgeRowResult.nudgeId}` },
       };
 
       const { providerMessageId, skipped } = await sender.send(email);
       return {
         providerMessageId,
         skipped: skipped ?? false,
+        alreadySent: false,
         provider: sender.provider,
         replyTo,
         mailboxHash: `n_${nudgeRowResult.nudgeId}`,
       };
     });
+
+    // Deliverable 12 idempotency: the send step returned alreadySent=true when it
+    // detected nudges.status='sent' on replay. Skip all remaining record steps —
+    // the nudge is already fully recorded. Return sent so the caller sees success.
+    if (sendResult.alreadySent) {
+      console.log(
+        `[send-nudge] loopId=${loopId} nudgeId=${nudgeRowResult.nudgeId} ALREADY_SENT (idempotent replay) runId=${runId}`,
+      );
+      return {
+        ok: true,
+        status: "sent",
+        nudgeId: nudgeRowResult.nudgeId,
+        providerMessageId: "",
+      };
+    }
 
     // Suppression (Phase 6): a non-active outbound user causes the suppression guard to
     // refuse the send (no network call) and flip the nudge row to `status='skipped'`.
@@ -404,7 +553,7 @@ export const sendNudgeFunction = inngest.createFunction(
         toEmail: checkResult.toEmail,
         subject: nudgeRowResult.subject,
         textBody: nudgeRowResult.textBody,
-        headers: {},
+        headers: { "X-Keeps-Idempotency-Key": `nudge-${nudgeRowResult.nudgeId}` },
         replyTo: sendResult.replyTo,
         inReplyTo: null,
         referencesHeader: null,
