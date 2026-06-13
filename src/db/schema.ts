@@ -1,11 +1,13 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -64,6 +66,15 @@ export const auditActionEnum = pgEnum("audit_action", [
   "report.generated",
   "report.viewed",
   "report.action_applied",
+  // Phase 6 additions
+  "email.outbound.suppressed",
+  "email.deleted_by_user",
+  "data.export_requested",
+  "data.export_completed",
+  "data.delete_requested",
+  "data.delete_completed",
+  "user.deleted",
+  "failed_processing.replayed",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -116,7 +127,7 @@ export const approvalStatusEnum = pgEnum("approval_status", [
   "cancelled",
 ]);
 
-export const nudgeStatusEnum = pgEnum("nudge_status", ["pending", "sent", "skipped"]);
+export const nudgeStatusEnum = pgEnum("nudge_status", ["pending", "sent", "skipped", "failed"]);
 
 // Phase 4: Connector enums
 export const connectorProviderEnum = pgEnum("connector_provider", ["slack", "google_calendar"]);
@@ -150,6 +161,14 @@ export const generatedReportKindEnum = pgEnum("generated_report_kind", [
   "entity",
 ]);
 
+// Phase 6: Outbound deliverability suppression state
+export const outboundEmailStateEnum = pgEnum("outbound_email_state", [
+  "active",
+  "bounced",
+  "complained",
+  "suppressed",
+]);
+
 export const users = pgTable(
   "users",
   {
@@ -166,6 +185,11 @@ export const users = pgTable(
     timezone: text("timezone").notNull().default("UTC"),
     digestEnabled: boolean("digest_enabled").notNull().default(true),
     digestSendHour: integer("digest_send_hour").notNull().default(8),
+    // Phase 6: deliverability + trust controls.
+    // rawEmailRetentionDays is nullable on purpose: null = "until I delete" (never scrubbed).
+    outboundEmailState: outboundEmailStateEnum("outbound_email_state").notNull().default("active"),
+    rawEmailRetentionDays: integer("raw_email_retention_days").default(30),
+    isAdmin: boolean("is_admin").notNull().default(false),
   },
   (table) => ({
     emailIdx: uniqueIndex("users_email_unique").on(table.email),
@@ -261,6 +285,8 @@ export const inboundEmails = pgTable(
     rawPayload: jsonb("raw_payload").notNull(),
     providerReceivedAt: timestamp("provider_received_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase 6: set when the retention cron scrubs the raw bodies (deliverable 10).
+    scrubbedAt: timestamp("scrubbed_at", { withTimezone: true }),
   },
   (table) => ({
     providerMessageIdx: uniqueIndex("inbound_emails_provider_message_unique").on(
@@ -271,6 +297,7 @@ export const inboundEmails = pgTable(
     threadIdx: index("inbound_emails_thread_idx").on(table.emailThreadId),
     senderIdx: index("inbound_emails_sender_idx").on(table.senderEmail),
     mailboxHashIdx: index("inbound_emails_mailbox_hash_idx").on(table.mailboxHash),
+    scrubbedIdx: index("inbound_emails_scrubbed_idx").on(table.scrubbedAt, table.createdAt),
   }),
 );
 
@@ -299,12 +326,15 @@ export const emailMessages = pgTable(
     strippedTextReply: text("stripped_text_reply"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Phase 6: set when the retention cron scrubs the message bodies (deliverable 10).
+    scrubbedAt: timestamp("scrubbed_at", { withTimezone: true }),
   },
   (table) => ({
     inboundEmailIdx: uniqueIndex("email_messages_inbound_email_unique").on(table.inboundEmailId),
     providerMessageIdx: uniqueIndex("email_messages_provider_message_unique").on(table.providerMessageId),
     threadIdx: index("email_messages_thread_idx").on(table.emailThreadId),
     userIdx: index("email_messages_user_idx").on(table.userId),
+    scrubbedIdx: index("email_messages_scrubbed_idx").on(table.scrubbedAt, table.createdAt),
   }),
 );
 
@@ -653,6 +683,130 @@ export const generatedReports = pgTable(
   }),
 );
 
+// ============================================================================
+// Phase 6: Reliability, Evaluation & Trust Hardening tables
+// ============================================================================
+
+// One row per `pnpm eval` invocation (deliverable 1/3).
+export const evalRuns = pgTable(
+  "eval_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    mode: text("mode").notNull(), // 'deterministic' | 'model'
+    gitSha: text("git_sha"),
+    modelId: text("model_id"),
+    caseCount: integer("case_count").notNull().default(0),
+    precision: real("precision"),
+    recall: real("recall"),
+    lowConfidenceHandlingRate: real("low_confidence_handling_rate"),
+    falsePositiveRate: real("false_positive_rate"),
+    summary: jsonb("summary").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    createdIdx: index("eval_runs_created_idx").on(table.createdAt),
+    modeCreatedIdx: index("eval_runs_mode_created_idx").on(table.mode, table.createdAt),
+  }),
+);
+
+// Pilot-submitted candidate eval cases awaiting human labeling (the labeled cases live
+// in src/agent/eval/cases/ as code; this is just the review backlog).
+export const evalCases = pgTable(
+  "eval_cases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    normalizedPayload: jsonb("normalized_payload").notNull().default({}),
+    status: text("status").notNull().default("pending_label"), // pending_label | labeled | rejected
+    notes: text("notes"),
+  },
+  (table) => ({
+    statusIdx: index("eval_cases_status_idx").on(table.status, table.submittedAt),
+  }),
+);
+
+// One row per instrumented generateObject call (deliverable 5). `purpose` is text so a new
+// model caller never needs a migration; promptPreview is null unless KEEPS_MODEL_LOG_PROMPT_PREVIEW=1.
+export const modelCalls = pgTable(
+  "model_calls",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    inboundEmailId: uuid("inbound_email_id").references(() => inboundEmails.id, {
+      onDelete: "set null",
+    }),
+    purpose: text("purpose").notNull(),
+    modelId: text("model_id").notNull(),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    structuredOutput: jsonb("structured_output"),
+    promptPreview: text("prompt_preview"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userCreatedIdx: index("model_calls_user_created_idx").on(table.userId, table.createdAt),
+    purposeCreatedIdx: index("model_calls_purpose_created_idx").on(table.purpose, table.createdAt),
+    inboundIdx: index("model_calls_inbound_idx").on(table.inboundEmailId),
+  }),
+);
+
+// Aggregate metric series (deliverables 3/6/15). Aggregate-only; never user-deleted.
+export const qualityMetricsDaily = pgTable(
+  "quality_metrics_daily",
+  {
+    date: date("date").notNull(), // SQL `date`; read/written as an ISO 'YYYY-MM-DD' string
+    metric: text("metric").notNull(),
+    value: real("value").notNull(),
+    denominator: real("denominator"),
+    metadata: jsonb("metadata").notNull().default({}),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.date, table.metric] }),
+  }),
+);
+
+// Lifecycle record for account-wide deletion (deliverable 7). user_id has no FK so the row
+// outlives the user; email is captured before delete for the audit window.
+export const dataDeletionRequests = pgTable(
+  "data_deletion_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id"),
+    email: text("email").notNull(),
+    status: text("status").notNull().default("pending"), // pending | in_progress | completed | failed
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failureMessage: text("failure_message"),
+  },
+  (table) => ({
+    statusIdx: index("data_deletion_requests_status_idx").on(table.status, table.requestedAt),
+  }),
+);
+
+// Dead-letter queue for inbound/workflow processing failures (deliverable 14). inbound_email_id
+// is a plain nullable uuid with NO FK: a failure may pre-date persistence, so a FK would reject the row.
+export const failedProcessing = pgTable(
+  "failed_processing",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    inboundEmailId: uuid("inbound_email_id"),
+    eventName: text("event_name").notNull(),
+    eventPayload: jsonb("event_payload").notNull().default({}),
+    errorMessage: text("error_message"),
+    errorStack: text("error_stack"),
+    failedAt: timestamp("failed_at", { withTimezone: true }).notNull().defaultNow(),
+    replayedAt: timestamp("replayed_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    notes: text("notes"),
+  },
+  (table) => ({
+    openIdx: index("failed_processing_open_idx").on(table.resolvedAt, table.failedAt),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -681,3 +835,19 @@ export type NewConnectorAction = typeof connectorActions.$inferInsert;
 // Phase 5 additions
 export type GeneratedReport = typeof generatedReports.$inferSelect;
 export type NewGeneratedReport = typeof generatedReports.$inferInsert;
+// Phase 6 additions
+export type OutboundEmailState = typeof outboundEmailStateEnum.enumValues[number];
+export type EvalRun = typeof evalRuns.$inferSelect;
+export type NewEvalRun = typeof evalRuns.$inferInsert;
+// EvalCaseRow (not EvalCase) to avoid colliding with the eval-suite fixture type in
+// src/agent/eval/types.ts; this is the DB backlog row, that is the code fixture shape.
+export type EvalCaseRow = typeof evalCases.$inferSelect;
+export type NewEvalCaseRow = typeof evalCases.$inferInsert;
+export type ModelCall = typeof modelCalls.$inferSelect;
+export type NewModelCall = typeof modelCalls.$inferInsert;
+export type QualityMetricDaily = typeof qualityMetricsDaily.$inferSelect;
+export type NewQualityMetricDaily = typeof qualityMetricsDaily.$inferInsert;
+export type DataDeletionRequest = typeof dataDeletionRequests.$inferSelect;
+export type NewDataDeletionRequest = typeof dataDeletionRequests.$inferInsert;
+export type FailedProcessing = typeof failedProcessing.$inferSelect;
+export type NewFailedProcessing = typeof failedProcessing.$inferInsert;
