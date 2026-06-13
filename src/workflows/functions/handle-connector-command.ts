@@ -571,9 +571,14 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     });
 
     const timeout = reversibility === "reversible" ? CONFIRM_WINDOW_TIMEOUT : HARD_APPROVAL_TIMEOUT;
+    // CRITICAL: `match: "data.approvalId"` would compare the incoming approval.received
+    // against the TRIGGERING event (connector.action_requested) — which has NO approvalId
+    // (the approval is created at runtime inside this function). That match can never
+    // succeed, so the function would wait until timeout and never execute. We instead use
+    // an `if` expression binding the awaited event to the approval id we just created.
     const decided = await step.waitForEvent("wait-approval-decision", {
       event: "approval.received",
-      match: "data.approvalId",
+      if: `async.data.approvalId == "${created.approvalId}"`,
       timeout,
     });
 
