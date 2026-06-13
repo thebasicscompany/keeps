@@ -158,7 +158,12 @@ export interface ConnectorAccountsRepository {
 // ---------------------------------------------------------------------------
 
 export class DrizzleConnectorAccountsRepository implements ConnectorAccountsRepository {
-  private readonly db = getDb();
+  private readonly db: ReturnType<typeof getDb>;
+
+  /** `db` is injectable so DB-gated integration tests can target a test Postgres. */
+  constructor(db?: ReturnType<typeof getDb>) {
+    this.db = db ?? getDb();
+  }
 
   async upsertByComposioAccount(
     input: UpsertByComposioAccountInput,
@@ -185,6 +190,25 @@ export class DrizzleConnectorAccountsRepository implements ConnectorAccountsRepo
     if (input.scopes !== undefined) optional.scopes = input.scopes;
     if (input.metadata !== undefined) optional.metadata = input.metadata;
 
+    // RECONCILE ON (user_id, provider) — the "one connector per user per provider"
+    // invariant. A reconnect arrives with a NEW composio_connected_account_id for an
+    // EXISTING (user, provider) row, so conflicting on the composio id alone would
+    // miss it and hit the (user_id, provider) unique constraint as an unhandled throw.
+    // We therefore conflict on (user_id, provider) and ADOPT the new composio id on
+    // the existing row. (The new ca_ id is globally unique to this user, so updating
+    // it can't collide with another row's composio-id unique index in practice.)
+    const updateSet: Record<string, unknown> = {
+      ...mutable,
+      ...optional,
+      composioConnectedAccountId: input.composioConnectedAccountId,
+    };
+    // Becoming active (the connect/reconnect path) clears the disconnect marker and
+    // refreshes connectedAt to this fresh connection.
+    if (input.status === "active") {
+      updateSet.connectedAt = now;
+      updateSet.disconnectedAt = null;
+    }
+
     const [row] = await this.db
       .insert(connectorAccounts)
       .values({
@@ -196,8 +220,8 @@ export class DrizzleConnectorAccountsRepository implements ConnectorAccountsRepo
         createdAt: now,
       })
       .onConflictDoUpdate({
-        target: connectorAccounts.composioConnectedAccountId,
-        set: { ...mutable, ...optional },
+        target: [connectorAccounts.userId, connectorAccounts.provider],
+        set: updateSet,
       })
       .returning();
 
