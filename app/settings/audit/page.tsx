@@ -1,17 +1,133 @@
 /**
  * app/settings/audit/page.tsx
  *
- * STUB — placeholder for the audit log list.
- * Real data layer and pagination land in Wave B.
- *
- * Auth pattern: identical to app/settings/page.tsx.
- * Outer shell is provided by layout.tsx.
+ * Audit log view — replaces the Wave A stub.
+ * Server component. Auth-gated via Clerk → user_identities → users.id.
+ * Outer shell (background, container, header) is provided by layout.tsx.
  */
 
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { and, eq } from "drizzle-orm";
 import type { Route } from "next";
+import { getDb } from "@/db/client";
+import { users, userIdentities } from "@/db/schema";
+import { listAuditForUser } from "@/audit/list-for-user";
+import { labelForAction, summarizeMetadata } from "@/audit/summarize-row";
+import type { AuditLogEntry } from "@/db/schema";
 import { cardClass, mutedClass } from "../_ui";
+
+// ---------------------------------------------------------------------------
+// Presentational component — factored for testability with renderToStaticMarkup
+// ---------------------------------------------------------------------------
+
+export interface AuditTableProps {
+  rows: AuditLogEntry[];
+}
+
+export function AuditTable({ rows }: AuditTableProps) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-32 items-center justify-center rounded-none border border-dashed border-[#E2E2DD] text-sm text-[#6F6F66]">
+        No audit events yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-[#E2E2DD]">
+            <th
+              scope="col"
+              className="py-2 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+              style={{ minWidth: "9rem" }}
+            >
+              When
+            </th>
+            <th
+              scope="col"
+              className="py-2 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+              style={{ minWidth: "12rem" }}
+            >
+              Event
+            </th>
+            <th
+              scope="col"
+              className="py-2 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+            >
+              Details
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const summary = summarizeMetadata(row);
+            return (
+              <tr
+                key={row.id}
+                className="border-b border-[#E2E2DD] last:border-0 hover:bg-[#FAFAF8]"
+              >
+                {/* Timestamp */}
+                <td className="py-2.5 pr-4 align-top font-mono text-xs text-[#6F6F66] whitespace-nowrap">
+                  <time dateTime={row.createdAt.toISOString()}>
+                    {formatTimestamp(row.createdAt)}
+                  </time>
+                </td>
+
+                {/* Action label */}
+                <td className="py-2.5 pr-4 align-top font-medium text-[#14140F]">
+                  {labelForAction(row.action)}
+                </td>
+
+                {/* Human summary of metadata (body-safe) */}
+                <td className="py-2.5 align-top text-[#6F6F66]">
+                  {summary || <span className="italic text-[#A8A89E]">—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatTimestamp(date: Date): string {
+  // ISO-like: 2026-06-13 14:32 UTC — compact and unambiguous.
+  return date
+    .toISOString()
+    .replace("T", " ")
+    .replace(/:\d{2}\.\d{3}Z$/, " UTC");
+}
+
+// ---------------------------------------------------------------------------
+// Resolve Clerk user id → internal users.id
+// ---------------------------------------------------------------------------
+
+async function resolveUserId(clerkUserId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ userId: userIdentities.userId })
+    .from(userIdentities)
+    .where(
+      and(
+        eq(userIdentities.provider, "clerk"),
+        eq(userIdentities.providerAccountId, clerkUserId),
+      ),
+    )
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Page component
+// ---------------------------------------------------------------------------
 
 export default async function AuditPage() {
   const { userId: clerkUserId } = await auth();
@@ -19,6 +135,15 @@ export default async function AuditPage() {
   if (!clerkUserId) {
     redirect("/sign-in?redirect_url=/settings/audit" as Route);
   }
+
+  const userId = await resolveUserId(clerkUserId);
+
+  if (!userId) {
+    // Clerk user exists but no local identity row yet (race during first sign-in).
+    redirect("/sign-in?redirect_url=/settings/audit" as Route);
+  }
+
+  const rows = await listAuditForUser({ userId, limit: 200 });
 
   return (
     <div className={cardClass}>
@@ -52,17 +177,37 @@ export default async function AuditPage() {
         </p>
       </div>
 
-      {/* Audit list — stub */}
-      <div className="space-y-3">
+      {/* Download link — wired to /api/data/export (built by B3 agent; 404 until merged) */}
+      <div className="mb-6 flex items-center justify-between gap-4">
         <p className={`text-sm ${mutedClass}`}>
-          The audit log will list account events such as connector connections
-          and disconnections, digest preference changes, data export requests,
-          and retention policy updates — including timestamps and acting user.
+          Showing up to 200 most recent events.
         </p>
-        <div className="flex h-32 items-center justify-center rounded-none border border-dashed border-[#E2E2DD] text-sm text-[#6F6F66]">
-          Audit log — coming in a future release
-        </div>
+        <a
+          href="/api/data/export"
+          className="inline-flex h-9 items-center gap-1.5 rounded-none border border-[#E2E2DD] bg-white px-4 text-sm font-semibold text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14140F]/20"
+          aria-label="Download all data as JSON"
+        >
+          {/* Download icon */}
+          <svg
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+            />
+          </svg>
+          Download all
+        </a>
       </div>
+
+      {/* Audit table */}
+      <AuditTable rows={rows} />
     </div>
   );
 }
