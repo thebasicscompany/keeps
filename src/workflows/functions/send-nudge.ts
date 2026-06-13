@@ -348,14 +348,39 @@ export const sendNudgeFunction = inngest.createFunction(
         mailboxHash: `n_${nudgeRowResult.nudgeId}`,
       };
 
-      const { providerMessageId } = await sender.send(email);
+      const { providerMessageId, skipped } = await sender.send(email);
       return {
         providerMessageId,
+        skipped: skipped ?? false,
         provider: sender.provider,
         replyTo,
         mailboxHash: `n_${nudgeRowResult.nudgeId}`,
       };
     });
+
+    // Suppression (Phase 6): a non-active outbound user causes the suppression guard to
+    // refuse the send (no network call) and flip the nudge row to `status='skipped'`.
+    // Do NOT record an outbound row or mark the nudge `sent`. Advance the loop's next
+    // check so the sweep does not re-attempt this nudge every cycle.
+    if (sendResult.skipped) {
+      await step.run("record-nudge-suppressed", async () => {
+        const now = new Date();
+        const repository = new DrizzleNudgeRepository();
+        const loop = await repository.findCandidateById(loopId);
+        if (loop) {
+          await repository.markLoopNudged({
+            loopId: loop.id,
+            nextCheckAt: advanceNextCheckAt(loop, now),
+            now,
+          });
+        }
+      });
+
+      console.log(
+        `[send-nudge] loopId=${loopId} nudgeId=${nudgeRowResult.nudgeId} SUPPRESSED (user_suppressed) runId=${runId}`,
+      );
+      return { ok: true, suppressed: true, nudgeId: nudgeRowResult.nudgeId };
+    }
 
     // Step 4: record — stamp nudge sent, update loop, write loop_events + audit.
     await step.run("record-nudge-sent", async () => {

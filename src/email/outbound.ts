@@ -28,7 +28,13 @@ export type OutboundEmail = {
   headers?: Record<string, string>;
 };
 
-export type SendResult = { providerMessageId: string };
+/**
+ * `skipped` is set by the suppression guard (Phase 6) when a non-active outbound
+ * user causes the send to be refused without a network call. Callers must treat a
+ * skipped result as "not sent" — do not record an outbound row or flip the nudge to
+ * `sent` (the guard already marked the nudge `skipped`).
+ */
+export type SendResult = { providerMessageId: string; skipped?: boolean };
 
 export interface EmailSender {
   /** Recorded on the persisted outbound row (e.g. "dev", "postmark"). */

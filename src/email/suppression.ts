@@ -11,7 +11,7 @@ type Db = PostgresJsDatabase<typeof schema>;
  * Sentinel result returned when the send is skipped due to outbound suppression.
  * `providerMessageId` is an empty string so callers that only log it don't crash.
  */
-export const SUPPRESSION_SKIP_RESULT: SendResult = { providerMessageId: "" };
+export const SUPPRESSION_SKIP_RESULT: SendResult = { providerMessageId: "", skipped: true };
 
 /**
  * Wraps an `EmailSender` with a pre-send suppression guard.
