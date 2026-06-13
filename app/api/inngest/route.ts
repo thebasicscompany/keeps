@@ -13,6 +13,7 @@ import { sweepApprovalExpiryFunction } from "@/workflows/functions/sweep-approva
 import { hydrateConnectorAccountFunction } from "@/workflows/functions/hydrate-connector-account";
 import { sweepConnectorStatusFunction } from "@/workflows/functions/sweep-connector-status";
 import { handleConnectorCommandFunction } from "@/workflows/functions/handle-connector-command";
+import { generateReportFunction } from "@/workflows/functions/generate-report";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -33,5 +34,7 @@ export const { GET, POST, PUT } = serve({
     sweepConnectorStatusFunction,
     // Phase 4 D1: connector command → approval → execute-once
     handleConnectorCommandFunction,
+    // Phase 5 C1: report.requested → generate report + private reply link
+    generateReportFunction,
   ],
 });
