@@ -1,0 +1,36 @@
+name: eval
+
+# FUTURE / NOT YET LIVE: there is currently NO git remote for this repo, so this
+# workflow does not run anywhere today. It is committed now so that the moment a
+# GitHub remote is added, the deterministic eval gate becomes CI-enforced with no
+# extra work. Until then, `pnpm eval --mode deterministic` is enforced as a LOCAL
+# pre-deploy gate (see src/agent/eval/README.md).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # No DATABASE_URL / OPENAI_API_KEY in CI: the harness runs deterministically
+      # and skips the eval_runs insert gracefully. A non-zero exit (precision/recall
+      # below src/agent/eval/baseline.json) fails the job.
+      - name: Run deterministic eval gate
+        run: pnpm eval --mode deterministic
