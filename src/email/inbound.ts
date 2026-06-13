@@ -1,4 +1,5 @@
 import { normalizeIdentityEmail } from "@/email/address";
+import { renderButtonEmailHtml } from "@/email/button-html";
 import { normalizePostmarkInbound, type NormalizedEmail } from "@/email/normalize";
 
 const pendingRetentionDays = 7;
@@ -322,41 +323,18 @@ export function buildUnknownSenderReply(senderEmail: string, appUrl: string): In
 }
 
 /**
- * Minimal HTML part for the activation reply. Inline styles only (mail clients strip
- * <style> blocks), a system-font stack (web fonts like Bricolage do not load reliably in
- * email), a single column capped at ~520px, no images, and one seafoam button-styled link.
- * The same text content as the plain-text part, which remains canonical.
+ * Minimal HTML part for the activation reply. Delegates to `renderButtonEmailHtml`
+ * which implements the settled design policy (inline styles, system font stack, single
+ * column, one seafoam button, no images). The plain-text part remains canonical.
  */
 function buildUnknownSenderReplyHtml(senderEmail: string, href: string): string {
-  const safeSender = escapeHtml(senderEmail);
-  const safeHref = escapeHtml(href);
-  const fontStack =
-    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-
-  return [
-    `<div style="margin:0;padding:24px;background-color:#FAFAF8;font-family:${fontStack};">`,
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:520px;margin:0 auto;">`,
-    `<tr><td style="padding:0 0 16px;color:#14140F;font-size:16px;line-height:24px;">`,
-    `This address is not yet registered with Keeps.`,
-    `</td></tr>`,
-    `<tr><td style="padding:0 0 24px;color:#14140F;font-size:16px;line-height:24px;">`,
-    `Activate Keeps for ${safeSender}.`,
-    `</td></tr>`,
-    `<tr><td style="padding:0 0 4px;">`,
-    `<a href="${safeHref}" style="display:inline-block;background-color:#C1F5DF;color:#14140F;border:1px solid rgba(30,107,79,0.4);padding:14px 26px;font-size:16px;font-weight:700;text-decoration:none;border-radius:0;font-family:${fontStack};">Activate Keeps</a>`,
-    `</td></tr>`,
-    `</table>`,
-    `</div>`,
-  ].join("");
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return renderButtonEmailHtml({
+    paragraphs: [
+      "This address is not yet registered with Keeps.",
+      `Activate Keeps for ${senderEmail}.`,
+    ],
+    button: { label: "Activate Keeps", url: href },
+  });
 }
 
 export function buildKnownSenderReply(senderEmail: string): InboundReply {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DevRecordingSender, type OutboundEmailStore } from "@/email/outbound";
+import {
+  DevRecordingSender,
+  type EmailSender,
+  type OutboundEmail,
+  type OutboundEmailStore,
+} from "@/email/outbound";
 import {
   sendNudge,
   type SendableNudge,
@@ -256,5 +261,70 @@ describe("sendNudge — owner privacy guard (B3)", () => {
     await sendNudge({ nudgeId, sender: new DevRecordingSender(), store, repository });
 
     expect(store.sends[0]?.toEmail).toBe("arav@example.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// html passthrough
+// ---------------------------------------------------------------------------
+
+describe("sendNudge — html passthrough", () => {
+  /** Captures the OutboundEmail passed to sender.send() so we can inspect htmlBody. */
+  class CapturingSender implements EmailSender {
+    readonly provider = "capture";
+    readonly captured: OutboundEmail[] = [];
+    async send(email: OutboundEmail) {
+      this.captured.push(email);
+      return { providerMessageId: `cap-${email.nudgeId}` };
+    }
+  }
+
+  it("passes html through to the OutboundEmail htmlBody when provided", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const sender = new CapturingSender();
+    const htmlPart = "<p>Approve this action.</p>";
+
+    const result = await sendNudge({
+      nudgeId,
+      sender,
+      store,
+      repository: makeRepository(),
+      html: htmlPart,
+    });
+
+    expect(result.status).toBe("sent");
+    expect(sender.captured[0]?.htmlBody).toBe(htmlPart);
+  });
+
+  it("omits htmlBody from the OutboundEmail when html is not provided", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const sender = new CapturingSender();
+
+    await sendNudge({
+      nudgeId,
+      sender,
+      store,
+      repository: makeRepository(),
+    });
+
+    expect(sender.captured[0]?.htmlBody).toBeUndefined();
+  });
+
+  it("does NOT persist html — recordSend receives no html column", async () => {
+    const store = new InMemoryOutboundEmailStore();
+    const sender = new CapturingSender();
+
+    await sendNudge({
+      nudgeId,
+      sender,
+      store,
+      repository: makeRepository(),
+      html: "<p>some html</p>",
+    });
+
+    // OutboundEmailStore.recordSend has no htmlBody field — the recorded send must not
+    // carry it (TypeScript enforces this at compile time; this runtime check confirms).
+    const recorded = store.sends[0] as Record<string, unknown>;
+    expect(recorded["htmlBody"]).toBeUndefined();
   });
 });

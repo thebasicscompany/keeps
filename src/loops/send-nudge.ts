@@ -68,6 +68,12 @@ export async function sendNudge(input: {
   /** Persistence for the outbound row + nudge status flip; Drizzle-backed by default. */
   store?: OutboundEmailStore;
   now?: () => Date;
+  /**
+   * Optional HTML part for the outbound email. When present it is set as `htmlBody` on
+   * the OutboundEmail and passed to the sender. It is NOT persisted — outbound_emails
+   * has no html column and recordSend is unchanged.
+   */
+  html?: string;
 }): Promise<SendNudgeResult> {
   const nudge = await input.repository.findSendableNudge(input.nudgeId);
 
@@ -87,6 +93,7 @@ export async function sendNudge(input: {
     to: nudge.toEmail,
     subject: nudge.subject ?? fallbackSubject,
     textBody: nudge.body,
+    ...(input.html !== undefined ? { htmlBody: input.html } : {}),
     replyTo,
     mailboxHash: `n_${nudge.id}`,
     inReplyTo: nudge.sourceProviderMessageId ?? undefined,

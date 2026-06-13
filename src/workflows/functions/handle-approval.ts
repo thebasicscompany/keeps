@@ -5,6 +5,7 @@ import { getDb } from "@/db/client";
 import { auditLog, users } from "@/db/schema";
 import type { ApprovalRequest, Draft } from "@/db/schema";
 import { buildApprovalLinks } from "@/approvals/links";
+import { renderButtonEmailHtml } from "@/email/button-html";
 import {
   DrizzleApprovalRepository,
   type ApprovalRepository,
@@ -92,18 +93,23 @@ function formatValue(value: unknown): string {
 }
 
 /**
- * Builds the subject + text body of the approval nudge email.
+ * Builds the subject, text body, and HTML part of the approval nudge email.
  *
  * The plaintext token reaches the user ONLY through the approve/cancel URLs
  * embedded in this body — it is the user's own one-time link. It never appears
  * in nudge metadata, events, audit rows, or logs.
+ *
+ * SECURITY: `html` carries the same token URLs as `textBody`. Both are returned
+ * together and must flow only through the in-memory send path. The caller is
+ * responsible for keeping them out of logs and DB columns other than the outbound
+ * email record (where textBody already lives).
  */
 export function buildApprovalEmail(input: {
   approvalId: string;
   draft: Pick<Draft, "actionKind" | "payload">;
   token: string;
   appUrl: string;
-}): { subject: string; textBody: string } {
+}): { subject: string; textBody: string; html: string } {
   const { approveUrl, cancelUrl } = buildApprovalLinks({
     approvalId: input.approvalId,
     token: input.token,
@@ -126,7 +132,20 @@ export function buildApprovalEmail(input: {
     "  reply  edit: <changes>    — tell me what to change",
   ].join("\n");
 
-  return { subject, textBody };
+  const html = renderButtonEmailHtml({
+    paragraphs: [
+      "Keeps needs your approval before running this:",
+      summarizeDraftPayload(input.draft),
+    ],
+    button: { label: "Approve", url: approveUrl },
+    textLinks: [
+      { label: "Cancel", url: cancelUrl },
+    ],
+    footnote:
+      "Or reply to this email: “approve” to run it, “reject” to cancel, or “edit: …” to change it.",
+  });
+
+  return { subject, textBody, html };
 }
 
 /** The one-line system notice for each terminal decision. */
@@ -204,6 +223,13 @@ export type PrepareApprovalResult =
       ownerEmail: string;
       subject: string;
       textBody: string;
+      /**
+       * HTML part carrying the same approve/cancel token URLs as textBody. Exposure surface
+       * is identical to textBody — both live in the memoized prepare-approval step return and
+       * flow only to the send step. Never written to nudge metadata, audit logs, or any DB
+       * column other than the outbound email record (where textBody already lives).
+       */
+      html: string;
     };
 
 /**
@@ -245,7 +271,7 @@ export async function prepareApproval(input: {
     return { status: "not_pending" };
   }
 
-  const { subject, textBody } = buildApprovalEmail({
+  const { subject, textBody, html } = buildApprovalEmail({
     approvalId,
     draft: approval.draft,
     token: rotated.token,
@@ -253,7 +279,8 @@ export async function prepareApproval(input: {
   });
 
   // AR-3: metadata carries ONLY { approvalId }. The token is NOT here — it lives
-  // solely in textBody (the user's email link).
+  // solely in textBody (the user's email link). html is NOT stored in the nudge row
+  // either — outbound_emails has no html column and the nudge body stays plain-text.
   const nudge = await nudges.createNudgeRow({
     userId: approval.userId,
     loopId: approval.draft.sourceLoopId ?? null,
@@ -270,6 +297,7 @@ export async function prepareApproval(input: {
     ownerEmail,
     subject,
     textBody,
+    html,
   };
 }
 
@@ -288,6 +316,11 @@ export async function sendApprovalEmailOnly(input: {
   ownerEmail: string;
   subject: string;
   textBody: string;
+  /**
+   * Optional HTML part. Exposure surface is identical to textBody — both come from the
+   * memoized prepare-approval step and flow only through this send-only step (no DB writes).
+   */
+  html?: string;
   sender: EmailSender;
   replyToBase: string;
 }): Promise<{ providerMessageId: string; outbound: OutboundEmail }> {
@@ -298,6 +331,7 @@ export async function sendApprovalEmailOnly(input: {
     to: input.ownerEmail,
     subject: input.subject,
     textBody: input.textBody,
+    ...(input.html !== undefined ? { htmlBody: input.html } : {}),
     replyTo,
     mailboxHash: `n_${input.nudgeId}`,
     // Reply-To travels as a top-level field; Postmark rejects it inside Headers (error 300).
@@ -456,6 +490,8 @@ export const handleApprovalFunction = inngest.createFunction(
     }
 
     // ── Send-only: Postmark call, NO DB writes.
+    // `prepared.html` carries token URLs — identical exposure surface as `prepared.textBody`.
+    // Both come from the memoized prepare-approval step and never leave this send step.
     const sent = await step.run("send-approval-email", async () => {
       const env = getOptionalEnv();
       return sendApprovalEmailOnly({
@@ -463,6 +499,7 @@ export const handleApprovalFunction = inngest.createFunction(
         ownerEmail: prepared.ownerEmail,
         subject: prepared.subject,
         textBody: prepared.textBody,
+        html: prepared.html,
         sender: getEmailSender(),
         replyToBase: env.POSTMARK_REPLY_TO_BASE,
       });

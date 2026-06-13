@@ -703,6 +703,171 @@ describe("sweepApprovalExpiry", () => {
 });
 
 // ---------------------------------------------------------------------------
+// html on the approval email
+// ---------------------------------------------------------------------------
+
+describe("buildApprovalEmail — html part", () => {
+  it("html contains the approve URL as the primary button href", () => {
+    const { html } = buildApprovalEmail({
+      approvalId: "appr-1",
+      draft: { actionKind: "send_slack", payload: { channel: "#general" } },
+      token: "tok123",
+      appUrl: APP_URL,
+    });
+    expect(html).toContain(`${APP_URL}/approvals/appr-1`);
+    expect(html).toContain("action=approve");
+    // Approve URL is inside the button element (background-color:#C1F5DF)
+    expect(html).toContain("#C1F5DF");
+  });
+
+  it("html contains the cancel URL as a small text link (not a button)", () => {
+    const { html } = buildApprovalEmail({
+      approvalId: "appr-2",
+      draft: { actionKind: "send_slack", payload: {} },
+      token: "tok456",
+      appUrl: APP_URL,
+    });
+    expect(html).toContain("action=cancel");
+    // Cancel is a secondary text link — font-size:14px, color #1E6B4F
+    expect(html).toContain("#1E6B4F");
+  });
+
+  it("html escapes the actionKind to prevent injection", () => {
+    const { html } = buildApprovalEmail({
+      approvalId: "appr-3",
+      draft: { actionKind: "<script>evil</script>", payload: {} },
+      token: "tok789",
+      appUrl: APP_URL,
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("html and textBody carry the same token (same approve URL)", () => {
+    const { textBody, html } = buildApprovalEmail({
+      approvalId: "appr-4",
+      draft: { actionKind: "test_action", payload: { x: 1 } },
+      token: "mytoken",
+      appUrl: APP_URL,
+    });
+    const tokenInText = textBody.match(/token=([^&\s]+)&action=approve/)?.[1];
+    expect(tokenInText).toBeDefined();
+    // The same encoded token must appear in the html approve href
+    expect(html).toContain(`token=${tokenInText}`);
+    expect(html).toContain("action=approve");
+  });
+});
+
+describe("sendApprovalEmailOnly — html passthrough", () => {
+  it("sets htmlBody on the OutboundEmail when html is provided", async () => {
+    const sent: OutboundEmail[] = [];
+    const sender = {
+      provider: "fake",
+      send: async (email: OutboundEmail) => {
+        sent.push(email);
+        return { providerMessageId: "pm-html-1" };
+      },
+    };
+
+    await sendApprovalEmailOnly({
+      nudgeId: "nudge-html-1",
+      ownerEmail: OWNER_EMAIL,
+      subject: "Approval needed: test_action",
+      textBody: "plain body",
+      html: "<p>html body</p>",
+      sender,
+      replyToBase: "agent@keeps.ai",
+    });
+
+    expect(sent[0]?.htmlBody).toBe("<p>html body</p>");
+  });
+
+  it("omits htmlBody when html is not provided", async () => {
+    const sent: OutboundEmail[] = [];
+    const sender = {
+      provider: "fake",
+      send: async (email: OutboundEmail) => {
+        sent.push(email);
+        return { providerMessageId: "pm-nohtml-1" };
+      },
+    };
+
+    await sendApprovalEmailOnly({
+      nudgeId: "nudge-nohtml-1",
+      ownerEmail: OWNER_EMAIL,
+      subject: "Approval needed: test_action",
+      textBody: "plain body",
+      sender,
+      replyToBase: "agent@keeps.ai",
+    });
+
+    expect(sent[0]?.htmlBody).toBeUndefined();
+  });
+});
+
+describe("prepareApproval — html present in result, NOT in nudge row or metadata", () => {
+  it("prepared result carries html with the approve URL", async () => {
+    const repo = new FakeApprovalRepository();
+    const nudges = new FakeNudgeRepository();
+    const { approval } = seedPending(repo);
+
+    const result = await prepareApproval({
+      approvalId: approval.id,
+      repository: repo,
+      ownerResolver: new FakeOwnerResolver({ [USER_ID]: OWNER_EMAIL }),
+      nudges,
+      appUrl: APP_URL,
+    });
+
+    expect(result.status).toBe("prepared");
+    if (result.status !== "prepared") throw new Error("expected prepared");
+    expect(result.html).toBeDefined();
+    expect(result.html).toContain(`${APP_URL}/approvals/${approval.id}`);
+    expect(result.html).toContain("action=approve");
+    // Cancel as a text link
+    expect(result.html).toContain("action=cancel");
+  });
+
+  it("the persisted nudge row does NOT contain the html or the token", async () => {
+    const repo = new FakeApprovalRepository();
+    const nudges = new FakeNudgeRepository();
+    const { approval } = seedPending(repo);
+
+    const result = await prepareApproval({
+      approvalId: approval.id,
+      repository: repo,
+      ownerResolver: new FakeOwnerResolver({ [USER_ID]: OWNER_EMAIL }),
+      nudges,
+      appUrl: APP_URL,
+    });
+    if (result.status !== "prepared") throw new Error("expected prepared");
+
+    const nudge = nudges.nudges[0];
+
+    // The nudge body is plain-text (textBody), not html — no HTML markup attributes.
+    // (textBody does contain "<changes>" in the reply instructions, so we check for
+    // HTML-specific patterns rather than any "<".)
+    expect(nudge.body).not.toContain("background-color");
+    expect(nudge.body).not.toContain("style=");
+    expect(nudge.body).not.toContain("<div");
+    expect(nudge.body).not.toContain("<a href");
+
+    // Metadata must not contain the html (which carries the token)
+    expect(JSON.stringify(nudge.metadata)).not.toContain("html");
+    expect(JSON.stringify(nudge.metadata)).not.toContain("C1F5DF");
+
+    // Extract the token from the html and confirm it's absent from metadata
+    const tokenInHtml = decodeURIComponent(
+      result.html.match(/token=([^&"]+)&amp;action=approve/)?.[1] ??
+        result.html.match(/token=([^&"]+)&action=approve/)?.[1] ?? "",
+    );
+    if (tokenInHtml) {
+      expect(JSON.stringify(nudge.metadata)).not.toContain(tokenInHtml);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // no plaintext token ever reaches the Drizzle audit writer's metadata
 // ---------------------------------------------------------------------------
 
