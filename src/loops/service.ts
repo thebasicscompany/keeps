@@ -104,6 +104,8 @@ export type LoopProcessingRepository = {
     nextCheckAt?: Date | null;
     commandText: string;
     eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
+    /** Discriminates the originating path for loop_events.metadata. Defaults to "email_command". */
+    source?: "email_command" | "report_row_action";
   }): Promise<PersistedLoop>;
   /**
    * Correction branch (Deliverable 5): record the user's correction text against a loop
@@ -165,6 +167,54 @@ export type Phase2WorkflowEvent =
         eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
       };
     };
+
+export type LoopMutationAction = "confirm" | "dismiss" | "snooze" | "mark_done";
+
+export type MutateLoopStateInput = {
+  userId: string;
+  loopId: string;
+  action: LoopMutationAction;
+  /** Required for snooze (the new next_check_at); ignored otherwise. */
+  snoozeUntil?: Date | null;
+  /** For non-snooze actions, the loop's current nextCheckAt so it is preserved unchanged. */
+  nextCheckAt?: Date | null;
+  commandText: string;
+  source: "email_command" | "report_row_action";
+  repository: LoopProcessingRepository;
+};
+
+export type MutateLoopStateResult = {
+  loop: PersistedLoop;
+  event: Extract<Phase2WorkflowEvent, { name: "loop.updated" }>;
+};
+
+export async function mutateLoopState(input: MutateLoopStateInput): Promise<MutateLoopStateResult> {
+  const status = statusForAction(input.action);
+  const eventType = eventTypeForAction(input.action);
+  const nextCheckAt = input.action === "snooze" ? (input.snoozeUntil ?? null) : input.nextCheckAt;
+
+  const loop = await input.repository.updateLoopFromCommand({
+    loopId: input.loopId,
+    userId: input.userId,
+    status,
+    nextCheckAt,
+    commandText: input.commandText,
+    eventType,
+    source: input.source,
+  });
+
+  const event: Extract<Phase2WorkflowEvent, { name: "loop.updated" }> = {
+    name: "loop.updated",
+    data: {
+      loopId: loop.id,
+      userId: loop.userId,
+      status: loop.status,
+      eventType,
+    },
+  };
+
+  return { loop, event };
+}
 
 export type ProcessInboundEmailForLoopsResult =
   | {
@@ -381,31 +431,22 @@ export async function applyLoopReplyCommand(input: {
   }
 
   const updatedLoops: PersistedLoop[] = [];
+  const events: Phase2WorkflowEvent[] = [];
 
   for (const target of targets) {
-    updatedLoops.push(
-      await input.repository.updateLoopFromCommand({
-        loopId: target.id,
-        userId: input.userId,
-        status: statusForCommand(command),
-        nextCheckAt: command.type === "snooze" ? command.remindAt : target.nextCheckAt,
-        commandText: command.rawText,
-        eventType: eventTypeForCommand(command),
-      }),
-    );
+    const result = await mutateLoopState({
+      userId: input.userId,
+      loopId: target.id,
+      action: command.type as LoopMutationAction,
+      snoozeUntil: command.type === "snooze" ? command.remindAt : undefined,
+      nextCheckAt: target.nextCheckAt,
+      commandText: command.rawText,
+      source: "email_command",
+      repository: input.repository,
+    });
+    updatedLoops.push(result.loop);
+    events.push(result.event);
   }
-
-  const events = updatedLoops.map(
-    (loop): Phase2WorkflowEvent => ({
-      name: "loop.updated",
-      data: {
-        loopId: loop.id,
-        userId: loop.userId,
-        status: loop.status,
-        eventType: eventTypeForCommand(command),
-      },
-    }),
-  );
 
   return {
     command,
@@ -436,8 +477,8 @@ function selectCommandTargets(command: LoopReplyCommand, loops: PersistedLoop[])
   return [];
 }
 
-function statusForCommand(command: Exclude<LoopReplyCommand, { type: "unknown" | "correction" }>): LoopStatus {
-  switch (command.type) {
+function statusForAction(action: LoopMutationAction): LoopStatus {
+  switch (action) {
     case "confirm":
       return "open";
     case "dismiss":
@@ -449,10 +490,8 @@ function statusForCommand(command: Exclude<LoopReplyCommand, { type: "unknown" |
   }
 }
 
-function eventTypeForCommand(
-  command: Exclude<LoopReplyCommand, { type: "unknown" | "correction" }>,
-): "confirmed" | "dismissed" | "snoozed" | "marked_done" {
-  switch (command.type) {
+function eventTypeForAction(action: LoopMutationAction): "confirmed" | "dismissed" | "snoozed" | "marked_done" {
+  switch (action) {
     case "confirm":
       return "confirmed";
     case "dismiss":
@@ -462,6 +501,16 @@ function eventTypeForCommand(
     case "mark_done":
       return "marked_done";
   }
+}
+
+function statusForCommand(command: Exclude<LoopReplyCommand, { type: "unknown" | "correction" }>): LoopStatus {
+  return statusForAction(command.type);
+}
+
+function eventTypeForCommand(
+  command: Exclude<LoopReplyCommand, { type: "unknown" | "correction" }>,
+): "confirmed" | "dismissed" | "snoozed" | "marked_done" {
+  return eventTypeForAction(command.type);
 }
 
 function replyForCommand(command: Exclude<LoopReplyCommand, { type: "unknown" | "correction" }>, count: number): string {

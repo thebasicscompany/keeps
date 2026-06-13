@@ -299,6 +299,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     nextCheckAt?: Date | null;
     commandText: string;
     eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
+    source?: "email_command" | "report_row_action";
   }): Promise<PersistedLoop> {
     return this.db.transaction(async (tx) => {
       const [loop] = await tx
@@ -336,6 +337,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         loopId: input.loopId,
         eventType: input.eventType,
         commandText: input.commandText,
+        metadata: { source: input.source ?? "email_command" },
       });
 
       await tx.insert(auditLog).values({
