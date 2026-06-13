@@ -40,7 +40,7 @@ export default async function ModelCallsPage({
     return (
       <main className="mx-auto max-w-3xl px-6 py-16 font-mono text-[#14140F]">
         <h1 className="text-xl font-bold">403 — Admins only</h1>
-        <p className="mt-2 text-sm text-[#5b5b52]">
+        <p className="mt-2 text-sm text-[#6F6F66]">
           You do not have access to this page.
         </p>
       </main>
@@ -74,14 +74,14 @@ export default async function ModelCallsPage({
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 font-mono text-[13px] text-[#14140F]">
       <h1 className="mb-1 text-xl font-bold">model_calls</h1>
-      <p className="mb-6 text-[#5b5b52]">
+      <p className="mb-6 text-[#6F6F66]">
         {rows.length} row{rows.length === 1 ? "" : "s"} (most recent first, limit {limit})
       </p>
 
       {/* Filters */}
       <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase text-[#5b5b52]">purpose</span>
+          <span className="text-[11px] uppercase text-[#6F6F66]">purpose</span>
           <select
             name="purpose"
             defaultValue={purposeFilter ?? ""}
@@ -96,7 +96,7 @@ export default async function ModelCallsPage({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase text-[#5b5b52]">userId</span>
+          <span className="text-[11px] uppercase text-[#6F6F66]">userId</span>
           <input
             type="text"
             name="userId"
@@ -106,7 +106,7 @@ export default async function ModelCallsPage({
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase text-[#5b5b52]">limit</span>
+          <span className="text-[11px] uppercase text-[#6F6F66]">limit</span>
           <input
             type="number"
             name="limit"
@@ -141,7 +141,7 @@ export default async function ModelCallsPage({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-2 py-4 text-center text-[#5b5b52]">
+                <td colSpan={7} className="px-2 py-4 text-center text-[#6F6F66]">
                   No model calls.
                 </td>
               </tr>
@@ -164,7 +164,7 @@ export default async function ModelCallsPage({
                     {row.errorMessage ? (
                       <span className="text-[#a3271f]">err: {row.errorMessage}</span>
                     ) : (
-                      <span className="line-clamp-3 break-words text-[#5b5b52]">
+                      <span className="line-clamp-3 break-words text-[#6F6F66]">
                         {summarizeOutput(row.structuredOutput)}
                       </span>
                     )}

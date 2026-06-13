@@ -47,7 +47,7 @@ export function FailedProcessingTable({ rows }: { rows: FailedProcessing[] }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-2 py-4 text-center text-[#5b5b52]">
+              <td colSpan={7} className="px-2 py-4 text-center text-[#6F6F66]">
                 No open failures.
               </td>
             </tr>
@@ -65,7 +65,7 @@ export function FailedProcessingTable({ rows }: { rows: FailedProcessing[] }) {
                   </span>
                 </td>
                 <td className="max-w-md px-2 py-1">
-                  <span className="line-clamp-3 break-words text-[#5b5b52]">
+                  <span className="line-clamp-3 break-words text-[#6F6F66]">
                     {summarizePayload(row.eventPayload)}
                   </span>
                 </td>
@@ -91,7 +91,7 @@ export default async function FailedProcessingPage() {
     return (
       <main className="mx-auto max-w-3xl px-6 py-16 font-mono text-[#14140F]">
         <h1 className="text-xl font-bold">403 — Admins only</h1>
-        <p className="mt-2 text-sm text-[#5b5b52]">You do not have access to this page.</p>
+        <p className="mt-2 text-sm text-[#6F6F66]">You do not have access to this page.</p>
       </main>
     );
   }
@@ -107,7 +107,7 @@ export default async function FailedProcessingPage() {
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 font-mono text-[13px] text-[#14140F]">
       <h1 className="mb-1 text-xl font-bold">failed_processing</h1>
-      <p className="mb-6 text-[#5b5b52]">
+      <p className="mb-6 text-[#6F6F66]">
         {rows.length} open row{rows.length === 1 ? "" : "s"} (resolvedAt IS NULL, newest first)
       </p>
       <FailedProcessingTable rows={rows} />

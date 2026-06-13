@@ -48,11 +48,11 @@ export function QualityDashboard({ data }: { data: QualityMetricsResult }) {
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 font-mono text-[13px] text-[#14140F]">
       <h1 className="mb-1 text-xl font-bold">quality_metrics_daily</h1>
-      <p className="mb-8 text-[#5b5b52]">Last 30 days. Ratios displayed as percentages.</p>
+      <p className="mb-8 text-[#6F6F66]">Last 30 days. Ratios displayed as percentages.</p>
 
       {/* Per-metric panels */}
       {series.length === 0 ? (
-        <div className="border border-[#14140F] px-4 py-8 text-center text-[#5b5b52]">
+        <div className="border border-[#14140F] px-4 py-8 text-center text-[#6F6F66]">
           No metrics yet.
         </div>
       ) : (
@@ -67,7 +67,7 @@ export function QualityDashboard({ data }: { data: QualityMetricsResult }) {
                 <div className="mb-1 flex items-baseline gap-4">
                   <h2 className="font-bold">{s.metric}</h2>
                   {latest ? (
-                    <span className="text-[#5b5b52]">
+                    <span className="text-[#6F6F66]">
                       latest {latest.date}: {fmt(latest.value)}
                       {latest.denominator != null
                         ? ` / ${latest.denominator} denom`
@@ -134,14 +134,14 @@ export function QualityDashboard({ data }: { data: QualityMetricsResult }) {
                 ] as [string, string][]
               ).map(([k, v]) => (
                 <div key={k} className="contents">
-                  <dt className="text-[#5b5b52]">{k}</dt>
+                  <dt className="text-[#6F6F66]">{k}</dt>
                   <dd>{v}</dd>
                 </div>
               ))}
             </dl>
           </div>
         ) : (
-          <div className="border border-[#14140F] px-4 py-4 text-[#5b5b52]">
+          <div className="border border-[#14140F] px-4 py-4 text-[#6F6F66]">
             No eval runs recorded yet.
           </div>
         )}
@@ -161,7 +161,7 @@ export default async function QualityPage() {
     return (
       <main className="mx-auto max-w-3xl px-6 py-16 font-mono text-[#14140F]">
         <h1 className="text-xl font-bold">403 — Admins only</h1>
-        <p className="mt-2 text-sm text-[#5b5b52]">
+        <p className="mt-2 text-sm text-[#6F6F66]">
           You do not have access to this page.
         </p>
       </main>

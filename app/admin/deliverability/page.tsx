@@ -37,7 +37,7 @@ export function DeliverabilityTable({ rows }: { rows: SuppressedUser[] }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={4} className="px-2 py-4 text-center text-[#5b5b52]">
+              <td colSpan={4} className="px-2 py-4 text-center text-[#6F6F66]">
                 No suppressed users.
               </td>
             </tr>
@@ -52,7 +52,7 @@ export function DeliverabilityTable({ rows }: { rows: SuppressedUser[] }) {
                         ? "text-[#a3271f]"
                         : row.outboundEmailState === "complained"
                           ? "text-[#b45309]"
-                          : "text-[#5b5b52]"
+                          : "text-[#6F6F66]"
                     }
                   >
                     {row.outboundEmailState}
@@ -84,7 +84,7 @@ export default async function DeliverabilityPage() {
     return (
       <main className="mx-auto max-w-3xl px-6 py-16 font-mono text-[#14140F]">
         <h1 className="text-xl font-bold">403 — Admins only</h1>
-        <p className="mt-2 text-sm text-[#5b5b52]">
+        <p className="mt-2 text-sm text-[#6F6F66]">
           You do not have access to this page.
         </p>
       </main>
@@ -96,7 +96,7 @@ export default async function DeliverabilityPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-10 font-mono text-[13px] text-[#14140F]">
       <h1 className="mb-1 text-xl font-bold">deliverability</h1>
-      <p className="mb-6 text-[#5b5b52]">
+      <p className="mb-6 text-[#6F6F66]">
         {rows.length} suppressed user{rows.length === 1 ? "" : "s"} (outboundEmailState ≠ active)
       </p>
       <DeliverabilityTable rows={rows} />
