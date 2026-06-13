@@ -4,8 +4,8 @@ export default function SignUpPage() {
   return (
     <SignUp
       signInUrl="/sign-in"
-      fallbackRedirectUrl="/"
-      forceRedirectUrl="/"
+      fallbackRedirectUrl="/get-started"
+      forceRedirectUrl="/get-started"
     />
   );
 }
