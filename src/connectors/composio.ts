@@ -63,11 +63,22 @@ export class MissingComposioConfigError extends Error {
 let _client: Composio | null = null;
 
 /**
+ * Pinned Composio toolkit versions. @composio/core 0.10.0 REJECTS "latest" at
+ * manual `tools.execute` time (ComposioToolVersionRequiredError) — the version
+ * must be pinned at client init. These are the current-latest versions probed
+ * 2026-06-13; override per-environment via env to bump without a code change.
+ * (Caught by the live e2e — a fake executor never hits this.)
+ */
+const DEFAULT_TOOLKIT_VERSIONS = {
+  slack: "20260519_01",
+  googlecalendar: "20260429_00",
+} as const;
+
+/**
  * Returns the lazily-constructed Composio singleton.
  * Throws MissingComposioConfigError if COMPOSIO_API_KEY is absent.
  *
- * Verified against: @composio/core 0.10.0 — `new Composio({ apiKey })`
- * @see node_modules/@composio/core/dist/composio-DRl6WCI9.d.mts line 5372
+ * Verified against: @composio/core 0.10.0 — `new Composio({ apiKey, toolkitVersions })`.
  */
 export function getComposioClient(): Composio {
   if (_client) return _client;
@@ -77,7 +88,14 @@ export function getComposioClient(): Composio {
     throw new MissingComposioConfigError();
   }
 
-  _client = new Composio({ apiKey: env.COMPOSIO_API_KEY });
+  _client = new Composio({
+    apiKey: env.COMPOSIO_API_KEY,
+    toolkitVersions: {
+      slack: env.COMPOSIO_SLACK_TOOLKIT_VERSION ?? DEFAULT_TOOLKIT_VERSIONS.slack,
+      googlecalendar:
+        env.COMPOSIO_GCAL_TOOLKIT_VERSION ?? DEFAULT_TOOLKIT_VERSIONS.googlecalendar,
+    },
+  });
   return _client;
 }
 

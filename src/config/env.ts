@@ -27,6 +27,11 @@ const envSchema = z.object({
   // RESEARCH-COMPOSIO.md; set per-environment rather than hard-coded.
   COMPOSIO_SLACK_AUTH_CONFIG_ID: z.string().optional(),
   COMPOSIO_GCAL_AUTH_CONFIG_ID: z.string().optional(),
+  // Pinned Composio toolkit versions — REQUIRED for manual tools.execute in
+  // @composio/core 0.10.0 ("latest" is rejected at execute time). Override to bump
+  // without a code change; defaults live in src/connectors/composio.ts.
+  COMPOSIO_SLACK_TOOLKIT_VERSION: z.string().optional(),
+  COMPOSIO_GCAL_TOOLKIT_VERSION: z.string().optional(),
 });
 
 export type KeepsEnv = z.infer<typeof envSchema>;
