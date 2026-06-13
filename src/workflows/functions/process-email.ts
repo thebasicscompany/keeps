@@ -10,6 +10,7 @@ import { DrizzleSendNudgeRepository, sendNudge } from "@/loops/send-nudge";
 import type { AnswerQuestionPorts } from "@/workflows/functions/handlers/answer-question";
 import type { ApprovalReplyAudit } from "@/workflows/functions/handlers/handle-approval-reply";
 import { routeEmail } from "@/workflows/functions/route-email";
+import { parseConnectorCommand } from "@/agent/parse-connector-command";
 import { inngest } from "@/workflows/client";
 
 /**
@@ -79,6 +80,12 @@ export const processEmail = inngest.createFunction(
         approvalRepository: new DrizzleApprovalRepository(),
         approvalAudit,
         questionPorts: buildQuestionPorts(),
+        // Phase 4 (D3): wire the real connector-command parser. The router's connector
+        // branch now reaches the live parser instead of degrading to the polite stub.
+        // useModel is threaded through by the router (deps.useModel) per the existing
+        // convention, so the parser uses the model in production and the deterministic
+        // regex in tests.
+        parseConnectorCommand,
       });
     });
 

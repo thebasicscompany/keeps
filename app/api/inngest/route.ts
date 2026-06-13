@@ -12,6 +12,7 @@ import { handleApprovalFunction } from "@/workflows/functions/handle-approval";
 import { sweepApprovalExpiryFunction } from "@/workflows/functions/sweep-approval-expiry";
 import { hydrateConnectorAccountFunction } from "@/workflows/functions/hydrate-connector-account";
 import { sweepConnectorStatusFunction } from "@/workflows/functions/sweep-connector-status";
+import { handleConnectorCommandFunction } from "@/workflows/functions/handle-connector-command";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -30,5 +31,7 @@ export const { GET, POST, PUT } = serve({
     // Phase 4: connector account lifecycle (hydration + status sweep)
     hydrateConnectorAccountFunction,
     sweepConnectorStatusFunction,
+    // Phase 4 D1: connector command → approval → execute-once
+    handleConnectorCommandFunction,
   ],
 });
