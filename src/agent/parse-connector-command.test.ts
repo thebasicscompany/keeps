@@ -314,7 +314,7 @@ describe("parseConnectorCommand — model path (stubbed)", () => {
 
   beforeEach(() => {
     // Return a non-null model so the model branch is entered.
-    vi.mocked(getKeepsLanguageModel).mockReturnValue({ id: "stub-model" } as ReturnType<typeof getKeepsLanguageModel>);
+    vi.mocked(getKeepsLanguageModel).mockReturnValue({ id: "stub-model" } as unknown as ReturnType<typeof getKeepsLanguageModel>);
     // generateObject resolves with our canned draft.
     vi.mocked(generateObject).mockResolvedValue({ object: STUB_DRAFT } as Awaited<ReturnType<typeof generateObject>>);
   });
