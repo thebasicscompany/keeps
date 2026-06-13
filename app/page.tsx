@@ -42,8 +42,8 @@ export default async function HomePage() {
           glowRadius={0}
           sparkle={false}
           waveAmplitude={0}
-          gradientFrom="rgba(20,20,15,0.18)"
-          gradientTo="rgba(20,20,15,0.10)"
+          gradientFrom="rgba(20,20,15,0.32)"
+          gradientTo="rgba(20,20,15,0.20)"
           glowColor="transparent"
           className="absolute inset-0 h-full w-full"
         />
