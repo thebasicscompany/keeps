@@ -279,8 +279,9 @@ describe("routeEmail branch dispatch", () => {
     const sent: string[] = [];
     store.addEmail(
       makeEmail("inbound-q", {
-        textBody: "what are my open loops?",
-        strippedTextReply: "what are my open loops?",
+        // A genuine question (NOT an insight command, which now routes to insight_command).
+        textBody: "what time is the sync?",
+        strippedTextReply: "what time is the sync?",
       }),
     );
 

@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { auditLog, users } from "@/db/schema";
+import { auditLog, loops, users } from "@/db/schema";
 import { DrizzleApprovalRepository } from "@/approvals/repository";
 import { DrizzleDigestRepository } from "@/digests/repository";
 import { getEmailSender } from "@/email/sender-factory";
@@ -33,6 +33,33 @@ function buildQuestionPorts(): AnswerQuestionPorts {
     findLoopsForDigest: (userId, now) => digestRepo.findLoopsForDigest(userId, now),
     createDigestReplyNudge: (input) => loopRepo.createPrivateReplyNudge(input),
   };
+}
+
+/**
+ * Distinct participant names + emails across the user's currently-tracked loops
+ * (Phase 5 / C2). Backs the router's `listTrackedParticipants` port for entity-scoped
+ * insight commands and the "did you mean…" clarification.
+ */
+async function listTrackedParticipants(userId: string): Promise<string[]> {
+  const activeStatuses = ["open", "waiting_on_me", "waiting_on_other", "snoozed", "candidate"] as const;
+  const rows = await getDb()
+    .select({ participants: loops.participants })
+    .from(loops)
+    .where(and(eq(loops.userId, userId), inArray(loops.status, [...activeStatuses])));
+
+  const names = new Set<string>();
+  for (const row of rows) {
+    const participants = Array.isArray(row.participants) ? row.participants : [];
+    for (const participant of participants) {
+      if (participant && typeof participant === "object") {
+        const name = (participant as { name?: unknown }).name;
+        const email = (participant as { email?: unknown }).email;
+        if (typeof name === "string" && name.trim()) names.add(name.trim());
+        if (typeof email === "string" && email.trim()) names.add(email.trim());
+      }
+    }
+  }
+  return [...names];
 }
 
 /**
@@ -80,6 +107,8 @@ export const processEmail = inngest.createFunction(
         approvalRepository: new DrizzleApprovalRepository(),
         approvalAudit,
         questionPorts: buildQuestionPorts(),
+        // Phase 5 (C2): entity-scoped insight commands + "did you mean…" clarification.
+        listTrackedParticipants,
         // Phase 4 (D3): wire the real connector-command parser. The router's connector
         // branch now reaches the live parser instead of degrading to the polite stub.
         // useModel is threaded through by the router (deps.useModel) per the existing

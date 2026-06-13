@@ -310,108 +310,81 @@ function digestMetadata(ordinalMap: Record<number, string>): PrivateReplyNudgeMe
 // ---------------------------------------------------------------------------
 
 describe("routeEmail — question/insights branch", () => {
-  it("answers a fresh 'insights' email with a digest-style nudge, persists the ordinal map, and emits report.requested", async () => {
+  it("routes a fresh 'insights' email to the insight_command branch and emits report.requested (email_command), sending no inline reply", async () => {
     const store = new InMemoryRouterStore();
     const sent: string[] = [];
     store.addEmail(makeEmail("inbound-insights", { textBody: "insights", strippedTextReply: "insights" }));
 
-    const digestLoops: DigestLoopInput[] = [
-      {
-        id: "loop-A",
-        emailThreadId: "thread-1",
-        status: "open",
-        summary: "Send the renewal packet.",
-        dueAt: null,
-        nextCheckAt: new Date("2026-06-11T00:00:00.000Z"), // next_check_at <= now → needsAttention
-        updatedAt: NOW,
-        lastNudgedAt: null,
-      },
-      {
-        id: "loop-B",
-        emailThreadId: "thread-2",
-        status: "waiting_on_other",
-        summary: "Awaiting legal sign-off.",
-        dueAt: null,
-        nextCheckAt: null,
-        updatedAt: NOW,
-        lastNudgedAt: null,
-      },
-    ];
+    const result = await routeEmail("inbound-insights", makeDeps(store, sent));
 
-    const ports = makeQuestionPorts(digestLoops);
-    ports.createDigestReplyNudge = (input) => store.createPrivateReplyNudge(input);
-
-    const result = await routeEmail("inbound-insights", makeDeps(store, sent, { questionPorts: ports }));
-
-    expect(result.branch).toBe("question");
+    expect(result.branch).toBe("insight_command");
     expect(result.status).toBe("processed");
-    expect(sent).toEqual([result.nudgeId]);
+    // generate-report owns the reply (it mints the token + sends the /r/<token> link),
+    // so the router sends nothing inline.
+    expect(result.nudgeId).toBeNull();
+    expect(sent).toEqual([]);
 
-    // The persisted nudge carries the renderer's ordinal → loopId map (AR-3).
-    const nudge = store.nudges.get(result.nudgeId as string);
-    expect(nudge?.metadata.ordinalMap[1]).toBe("loop-A");
-    expect(Object.values(nudge?.metadata.ordinalMap ?? {})).toContain("loop-B");
-
-    // report.requested (stub) + email.classified are emitted, in that order.
-    expect(result.events.map((e) => e.name)).toEqual(["report.requested", "email.classified"]);
-    expect(result.events[0]).toMatchObject({
+    // email.classified then report.requested, in that order.
+    expect(result.events.map((e) => e.name)).toEqual(["email.classified", "report.requested"]);
+    expect(result.events[1]).toMatchObject({
       name: "report.requested",
-      data: { kind: "insights", requestedVia: "email_question", inboundEmailId: "inbound-insights" },
+      data: { kind: "insights", scope: {}, requestedVia: "email_command", inboundEmailId: "inbound-insights" },
     });
   });
 
-  it("follow-up 'done 2' to the answer nudge resolves ordinal 2 from its stored map", async () => {
+  it("maps each deterministic insight phrase to the correct report kind", async () => {
+    const cases: Array<{ body: string; kind: string }> = [
+      { body: "what am I waiting on?", kind: "waiting_on" },
+      { body: "what is stale?", kind: "stale" },
+      { body: "weekly summary", kind: "weekly" },
+    ];
+    for (const [i, { body, kind }] of cases.entries()) {
+      const store = new InMemoryRouterStore();
+      const sent: string[] = [];
+      store.addEmail(makeEmail(`inbound-${i}`, { textBody: body, strippedTextReply: body }));
+      const result = await routeEmail(`inbound-${i}`, makeDeps(store, sent));
+      expect(result.branch).toBe("insight_command");
+      expect(result.events[1]).toMatchObject({ name: "report.requested", data: { kind } });
+    }
+  });
+
+  it("resolves an entity insight against tracked participants and emits an entity report", async () => {
     const store = new InMemoryRouterStore();
     const sent: string[] = [];
-    store.addEmail(makeEmail("inbound-insights", { textBody: "insights", strippedTextReply: "insights" }));
-    // Seed loops in the store so the command branch can update them.
-    store.loops.set("loop-A", {
-      id: "loop-A",
-      userId: "user-1",
-      emailThreadId: "thread-1",
-      inboundEmailId: "inbound-x",
-      sourceEvidenceId: "ev-A",
-      status: "open",
-      summary: "First.",
-      sourceQuote: "First.",
-      confidence: 0.9,
-      nextCheckAt: null,
-    });
-    store.loops.set("loop-B", {
-      id: "loop-B",
-      userId: "user-1",
-      emailThreadId: "thread-1",
-      inboundEmailId: "inbound-x",
-      sourceEvidenceId: "ev-B",
-      status: "open",
-      summary: "Second.",
-      sourceQuote: "Second.",
-      confidence: 0.9,
-      nextCheckAt: null,
-    });
-    const digestLoops: DigestLoopInput[] = [
-      { id: "loop-A", emailThreadId: "thread-1", status: "open", summary: "First.", dueAt: null, nextCheckAt: new Date("2026-06-11T00:00:00.000Z"), updatedAt: NOW, lastNudgedAt: null },
-      { id: "loop-B", emailThreadId: "thread-1", status: "open", summary: "Second.", dueAt: null, nextCheckAt: new Date("2026-06-11T00:00:00.000Z"), updatedAt: NOW, lastNudgedAt: null },
-    ];
-    const ports = makeQuestionPorts(digestLoops);
-    ports.createDigestReplyNudge = (input) => store.createPrivateReplyNudge(input);
+    store.addEmail(makeEmail("inbound-acme", { textBody: "show Acme loops", strippedTextReply: "show Acme loops" }));
 
-    const answer = await routeEmail("inbound-insights", makeDeps(store, sent, { questionPorts: ports }));
-    const answerNudgeId = answer.nudgeId as string;
+    const result = await routeEmail(
+      "inbound-acme",
+      makeDeps(store, sent, { listTrackedParticipants: async () => ["Acme Corp", "Maya Chen"] }),
+    );
 
-    store.addEmail(
-      makeEmail("inbound-done", {
-        mailboxHash: `n_${answerNudgeId}`,
-        textBody: "done 2",
-        strippedTextReply: "done 2",
+    expect(result.branch).toBe("insight_command");
+    expect(sent).toEqual([]);
+    expect(result.events[1]).toMatchObject({
+      name: "report.requested",
+      data: { kind: "entity", scope: { entity: "Acme" }, requestedVia: "email_command" },
+    });
+  });
+
+  it("sends a 'did you mean…' clarification when an entity insight matches no tracked participant", async () => {
+    const store = new InMemoryRouterStore();
+    const sent: string[] = [];
+    store.addEmail(makeEmail("inbound-zylo", { textBody: "show Zylo loops", strippedTextReply: "show Zylo loops" }));
+
+    const result = await routeEmail(
+      "inbound-zylo",
+      makeDeps(store, sent, {
+        listTrackedParticipants: async () => ["Acme Corp", "Maya Chen", "Bob Lee", "Extra Person"],
       }),
     );
-    const reply = await routeEmail("inbound-done", makeDeps(store, sent, { questionPorts: ports }));
 
-    expect(reply.branch).toBe("command");
-    // ordinal 2 → the loop the renderer listed second.
-    const secondLoopId = store.nudges.get(answerNudgeId)?.metadata.ordinalMap[2];
-    expect(store.loops.get(secondLoopId as string)?.status).toBe("done");
+    expect(result.branch).toBe("insight_command");
+    // Clarification reply is sent; no report.requested is emitted for an unresolved entity.
+    expect(sent).toEqual([result.nudgeId]);
+    expect(result.events.map((e) => e.name)).toEqual(["email.classified"]);
+    const nudge = store.nudges.get(result.nudgeId as string);
+    expect(nudge?.nudge.body).toContain("Acme Corp");
+    expect(nudge?.nudge.body).toContain("Did you mean");
   });
 
   it("falls back politely for a non-insights question", async () => {

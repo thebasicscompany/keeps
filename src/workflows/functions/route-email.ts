@@ -1,4 +1,8 @@
-import { classifyEmailIntent, type EmailIntent } from "@/agent/classify-intent";
+import {
+  classifyEmailIntent,
+  classifyInsightCommand,
+  type EmailIntent,
+} from "@/agent/classify-intent";
 import type { ApprovalRepository } from "@/approvals/repository";
 import type { NormalizedEmail } from "@/email/normalize";
 import { parseLoopReplyCommand } from "@/loops/commands";
@@ -35,7 +39,7 @@ import {
  * email.classified carries 'command', but branch carries 'connector_command' so
  * downstream consumers can distinguish connector commands from loop commands.
  */
-export type RouterBranch = EmailIntent | "connector_command";
+export type RouterBranch = EmailIntent | "connector_command" | "insight_command";
 
 export type RouterClassified = {
   name: "email.classified";
@@ -98,6 +102,16 @@ export type RouterDeps = {
     input: { emailBody: string; now: Date; timezone?: string },
     options: { useModel: boolean },
   ) => Promise<ConnectorCommandDraft>;
+  /**
+   * Insight-command port (Phase 5 / task C2). Returns the distinct participant
+   * names + emails across the user's currently-tracked loops. Used to (a) resolve
+   * entity-scoped insight commands deterministically without a model and (b) build
+   * the "did you mean…" clarification when an entity matches no tracked participant.
+   * Optional so pre-Phase-5 callers / tests that never exercise an entity command
+   * don't have to provide it; absent → entity commands fall back to the model (if
+   * useModel) or a generic clarification reply.
+   */
+  listTrackedParticipants?: (userId: string) => Promise<string[]>;
 };
 
 export type RouteEmailResult = {
@@ -180,6 +194,14 @@ export async function routeEmail(inboundEmailId: string, deps: RouterDeps): Prom
     return runConnectorCommandBranch(email, deps, classified("connector_command", 0));
   }
 
+  // Insight-command sub-branch (Phase 5 / C2): "what are my insights?", "what is
+  // stale?", "weekly summary", "show Acme loops", etc. Resolves kind+scope and emits
+  // report.requested for the generate-report function, which produces the report and
+  // sends the private reply (so this branch sends no inline digest reply).
+  if (classification.subtype === "insight_command") {
+    return runInsightCommandBranch(email, deps, classified("insight_command", 0));
+  }
+
   switch (intent) {
     case "capture":
       return runCaptureBranch(inboundEmailId, deps);
@@ -244,6 +266,60 @@ async function runConnectorCommandBranch(
     intent: "command",
     branch: "connector_command",
     events: [classified, actionRequestedEvent],
+    loops: [],
+    nudgeId: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Insight command branch (Phase 5 C2)
+// ---------------------------------------------------------------------------
+
+async function runInsightCommandBranch(
+  email: RoutableEmail,
+  deps: RouterDeps,
+  classified: RouterClassified,
+): Promise<RouteEmailResult> {
+  const body = email.normalized.strippedTextReply ?? email.normalized.textBody;
+  const knownParticipants = deps.listTrackedParticipants
+    ? await deps.listTrackedParticipants(email.userId)
+    : [];
+
+  const classification = await classifyInsightCommand(body, {
+    useModel: deps.useModel ?? false,
+    knownParticipants,
+  });
+
+  // Unresolved entity (deterministic patterns matched an entity shape but it maps to
+  // no tracked participant and the model could not resolve it): send a clarification
+  // reply instead of generating a wrong/empty report.
+  if (classification.kind === "unknown") {
+    const suggestions = knownParticipants.slice(0, 3);
+    const reply =
+      suggestions.length > 0
+        ? `I do not see any loops matching that. Did you mean one of these: ${suggestions.join(", ")}?`
+        : 'I could not tell which loops you meant. Try "what are my insights?", "what is stale?", or "what am I waiting on?".';
+    return finishStub(email, deps, classified, reply);
+  }
+
+  // Emit the canonical report.requested; generate-report builds the report and sends
+  // the private reply (with the /r/<token> link). No inline reply nudge here.
+  const reportRequested: KeepsWorkflowEvent = {
+    name: "report.requested",
+    data: {
+      userId: email.userId,
+      kind: classification.kind,
+      scope: classification.scope,
+      requestedVia: "email_command",
+      inboundEmailId: email.id,
+    },
+  };
+
+  return {
+    status: "processed",
+    intent: "command",
+    branch: "insight_command",
+    events: [classified, reportRequested],
     loops: [],
     nudgeId: null,
   };

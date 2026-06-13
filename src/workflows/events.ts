@@ -98,16 +98,38 @@ export type EventMap = {
     channel: "email_reply" | "web_link" | "cron";
   };
   /**
-   * Stub — Phase 5 owns the canonical shape. Emitted from the question router
-   * with `kind: 'insights'`; no consumer beyond an audit log entry in Phase 3.
+   * Phase 5 canonical shape. Emitted by the insight-command branch of the intent
+   * router (route-email.ts) after `classifyInsightCommand` resolves the kind + scope,
+   * and (legacy) by the question handler with `kind: 'insights'`. Consumed by the
+   * `generate-report` Inngest function, which produces the report + private reply.
+   * Never carries the raw token.
    */
   "report.requested": {
     userId: string;
-    kind: "insights";
-    scope?: unknown;
-    requestedVia: string;
+    kind: "insights" | "waiting_on" | "stale" | "weekly" | "entity";
+    scope: Record<string, unknown>;
+    requestedVia: "email_command" | "email_question" | "digest" | "manual";
     inboundEmailId?: string;
     nudgeId?: string;
+  };
+  "report.generated": {
+    userId: string;
+    reportId: string;
+    kind: string;
+    scope: Record<string, unknown>;
+    /** ISO timestamp */
+    expiresAt: string;
+    tokenHash: string;
+    summaryHeadline: string;
+    replyNudgeId: string;
+  };
+  "report.viewed": {
+    userId: string;
+    reportId: string;
+    /** ISO timestamp */
+    viewedAt: string;
+    viewerKind: "anonymous_link" | "clerk_session";
+    userAgentHash?: string;
   };
 
   // -------------------------------------------------------------------------

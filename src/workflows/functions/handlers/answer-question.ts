@@ -91,6 +91,7 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
     data: {
       userId,
       kind: "insights",
+      scope: {},
       requestedVia: "email_question",
       inboundEmailId,
       nudgeId: nudge.id,
