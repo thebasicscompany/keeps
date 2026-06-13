@@ -226,6 +226,34 @@ export type EventMap = {
     userId: string;
     email: string;
   };
+
+  // -------------------------------------------------------------------------
+  // Phase 6 B3: Data export events
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted by POST /api/data/export after auth. Triggers the generate-data-export
+   * Inngest function, which assembles the JSON export and uploads it to Blob (if configured).
+   */
+  "data.export_requested": {
+    userId: string;
+    /** ISO timestamp when the export was requested (minted in the API route). */
+    requestedAt: string;
+  };
+
+  /**
+   * Emitted by generate-data-export after the export JSON is ready. Triggers the
+   * send-export-email function, which emails the user their download link (or inline JSON).
+   */
+  "data.export_completed": {
+    userId: string;
+    /** Vercel Blob download URL valid for 24h, or null when Blob is not configured. */
+    downloadUrl: string | null;
+    /** The full export JSON when Blob is NOT configured (null when Blob is used). */
+    inline: string | null;
+    /** ISO timestamp when the download link expires (24h from now), or null when inline. */
+    expiresAt: string | null;
+  };
 };
 
 // ---------------------------------------------------------------------------
