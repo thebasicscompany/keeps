@@ -254,6 +254,27 @@ export type EventMap = {
     /** ISO timestamp when the download link expires (24h from now), or null when inline. */
     expiresAt: string | null;
   };
+
+  // -------------------------------------------------------------------------
+  // Phase 6 C1: dead-letter / failed-processing events (deliverable 14)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted by a function's `onFailure` handler AFTER retries are exhausted, in the
+   * same step that writes the failed_processing dead-letter row. Carries the original
+   * event name + payload plus the final error so downstream observers (alerting, an
+   * ops dashboard) can react without re-querying the row. `inboundEmailId` is optional
+   * because a failure may pre-date persistence (no FK on the column).
+   */
+  "email.processing_failed": {
+    inboundEmailId?: string;
+    eventName: string;
+    eventPayload: object;
+    errorMessage: string;
+    errorStack?: string;
+    /** ISO timestamp when the run was dead-lettered. */
+    failedAt: string;
+  };
 };
 
 // ---------------------------------------------------------------------------

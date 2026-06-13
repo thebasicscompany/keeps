@@ -13,6 +13,7 @@ import { routeEmail } from "@/workflows/functions/route-email";
 import { parseConnectorCommand } from "@/agent/parse-connector-command";
 import { inngest } from "@/workflows/client";
 import { withInngestSentry } from "@/observability/inngest-sentry";
+import { recordDeadLetter } from "@/workflows/dead-letter";
 
 /**
  * Question-branch ports (Deliverable #9): a digest user loader + the digest loop query +
@@ -79,7 +80,48 @@ const approvalAudit: ApprovalReplyAudit = async (entry) => {
 };
 
 export const processEmail = inngest.createFunction(
-  { id: "process-email", triggers: { event: "email.received" }, idempotency: "event.data.inboundEmailId" },
+  {
+    id: "process-email",
+    triggers: { event: "email.received" },
+    idempotency: "event.data.inboundEmailId",
+    retries: 3,
+    // Dead-letter rail: after the 3 retries above are exhausted, write a
+    // failed_processing row (the queue an admin can replay) AND emit
+    // `email.processing_failed`. `onFailure` runs once per terminal failure; its
+    // `event.data.event` is the ORIGINAL email.received event, so the stored
+    // payload (and its inboundEmailId idempotency key) round-trips exactly on
+    // replay. Attaching here does not change the `workflowFunctions` export below.
+    onFailure: async ({ event, error, step }) => {
+      const original = event.data.event;
+      const originalData = (original?.data ?? {}) as Record<string, unknown>;
+      const inboundEmailId =
+        typeof originalData.inboundEmailId === "string" ? originalData.inboundEmailId : null;
+      const errorMessage = error?.message ?? "process-email failed (no message).";
+      const errorStack = error?.stack ?? undefined;
+
+      await step.run("record-dead-letter", async () => {
+        await recordDeadLetter({
+          inboundEmailId,
+          eventName: original?.name ?? "email.received",
+          eventPayload: originalData,
+          error,
+        });
+        return { recorded: true };
+      });
+
+      await step.sendEvent("emit-processing-failed", {
+        name: "email.processing_failed",
+        data: {
+          ...(inboundEmailId ? { inboundEmailId } : {}),
+          eventName: original?.name ?? "email.received",
+          eventPayload: originalData,
+          errorMessage,
+          ...(errorStack ? { errorStack } : {}),
+          failedAt: new Date().toISOString(),
+        },
+      });
+    },
+  },
   async ({ event, step }) => withInngestSentry(
     { functionId: "process-email", eventId: event.id },
     async () => {

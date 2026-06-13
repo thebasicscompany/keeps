@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "eval": "tsx src/agent/eval/cli.ts",
+    "replay-failed-processing": "tsx scripts/replay-failed-processing.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
