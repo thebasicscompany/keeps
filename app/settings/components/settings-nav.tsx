@@ -13,6 +13,9 @@ import { usePathname } from "next/navigation";
 const tabs = [
   { label: "Settings", href: "/settings" },
   { label: "Connectors", href: "/settings/connectors" },
+  { label: "Privacy", href: "/settings/privacy" },
+  { label: "Data", href: "/settings/data" },
+  { label: "Audit", href: "/settings/audit" },
 ] as const;
 
 export function SettingsNav() {
