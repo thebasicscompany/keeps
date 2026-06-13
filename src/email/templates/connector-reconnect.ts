@@ -1,10 +1,11 @@
 /**
  * Email sent when Keeps loses access to a connector (Nango auth_error / refresh_error).
  *
- * Pure: no I/O. Returns { subject, textBody } — callers in Wave D wire the sender.
+ * Pure: no I/O. Returns { subject, textBody, html } — callers in Wave D wire the sender.
  */
 
 import type { ConnectorProvider } from "./connector-missing";
+import { renderButtonEmailHtml } from "@/email/button-html";
 
 export { type ConnectorProvider } from "./connector-missing";
 
@@ -21,6 +22,7 @@ function providerLabel(provider: ConnectorProvider): string {
 export function buildConnectorReconnectEmail(input: ConnectorReconnectEmailInput): {
   subject: string;
   textBody: string;
+  html: string;
 } {
   const label = providerLabel(input.provider);
 
@@ -34,5 +36,12 @@ export function buildConnectorReconnectEmail(input: ConnectorReconnectEmailInput
     `Reconnect: ${input.reconnectUrl}`,
   ].join("\n");
 
-  return { subject, textBody };
+  const html = renderButtonEmailHtml({
+    paragraphs: [
+      `Keeps lost access to your ${label}${reasonClause}. Reconnect to continue using connector commands.`,
+    ],
+    button: { label: `Reconnect ${label}`, url: input.reconnectUrl },
+  });
+
+  return { subject, textBody, html };
 }

@@ -40,6 +40,95 @@ import { notifyConnectorFailureCore } from "@/workflows/functions/notify-connect
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 // ---------------------------------------------------------------------------
+// Pure unit tests — HTML button (no DB required)
+// ---------------------------------------------------------------------------
+
+describe("notifyConnectorFailureCore — html button (pure)", () => {
+  it("sends htmlBody containing a seafoam button anchor when threshold is crossed", async () => {
+    // The DB query chain for select ends at .where() (no .limit()), and the insert
+    // chain ends at .onConflictDoUpdate(). We build a stateful fake that returns the
+    // right result at each terminal call.
+    //
+    // Call order in notifyConnectorFailureCore:
+    //   1. select().from().where()         → [{ cnt: 3 }]  (24h count)
+    //   2. insert().values().onConflictDoUpdate() → []      (upsert)
+    //   3. select().from().where()         → [{ cnt: 3 }]  (1h count)
+    //   4. select().from().where().limit() → [{ email: "owner@test.invalid" }] (user)
+
+    let selectCallIdx = 0;
+    // Results for the three select chains (indexed by call order).
+    const selectResults: unknown[][] = [
+      [{ cnt: 3 }],                          // 24h count
+      [{ cnt: 3 }],                          // 1h count
+      [{ email: "owner@test.invalid" }],     // user row (reached via .limit())
+    ];
+
+    // Each call to .select() starts a new sub-chain that captures its own call index.
+    function makeSelectChain(callIdx: number) {
+      const chain: Record<string, unknown> = {
+        from: (_t: unknown) => chain,
+        where: (..._a: unknown[]) => {
+          // For the user row query, .limit() is called after .where(); resolve lazily.
+          // For count queries, .where() IS the terminal call.
+          if (callIdx < 2) {
+            // count queries — .where() is terminal; return a thenable
+            return Promise.resolve(selectResults[callIdx]);
+          }
+          // user query — .limit() will be called next
+          return chain;
+        },
+        limit: (_n: unknown) => Promise.resolve(selectResults[callIdx]),
+      };
+      return chain;
+    }
+
+    const fakeDb = {
+      select: (_fields: unknown) => {
+        const chain = makeSelectChain(selectCallIdx);
+        selectCallIdx += 1;
+        return chain;
+      },
+      insert: (_table: unknown) => ({
+        values: (_vals: unknown) => ({
+          onConflictDoUpdate: (_opts: unknown) => Promise.resolve([]),
+        }),
+      }),
+    };
+
+    const captured: import("@/email/outbound").OutboundEmail[] = [];
+    const fakeSender: import("@/email/outbound").EmailSender = {
+      provider: "test",
+      async send(email) {
+        captured.push(email);
+        return { providerMessageId: "pm-test" };
+      },
+    };
+
+    await notifyConnectorFailureCore({
+      now: new Date("2026-06-13T12:00:00.000Z"),
+      userId: "user-html-test",
+      provider: "slack",
+      connectorActionId: "action-html-test",
+      errorCode: "composio_error",
+      db: fakeDb as unknown as import("@/workflows/functions/notify-connector-failure").ConnectorFailureDb,
+      sender: fakeSender,
+      appUrl: "https://test.keeps.email",
+    });
+
+    expect(captured).toHaveLength(1);
+    const email = captured[0];
+
+    // (a) html part has seafoam button with correct reconnect URL
+    expect(email.htmlBody).toBeDefined();
+    expect(email.htmlBody).toContain("#C1F5DF");
+    expect(email.htmlBody).toContain('href="https://test.keeps.email/settings/connectors"');
+
+    // (b) canonical textBody still contains the URL (fallback preserved)
+    expect(email.textBody).toContain("https://test.keeps.email/settings/connectors");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Capturing fake EmailSender for tests
 // ---------------------------------------------------------------------------
 

@@ -444,12 +444,12 @@ export const handleConnectorCommandFunction = inngest.createFunction(
         const env = getEnv();
         const ownerEmail = await new DrizzleOwnerResolver().findOwnerEmail(userId);
         if (ownerEmail) {
-          const { subject, textBody } = buildConnectorMissingEmail({
+          const { subject, textBody, html } = buildConnectorMissingEmail({
             provider: accountProvider,
             commandSummary: summarizeCommand(command),
             connectUrl: `${env.NEXT_PUBLIC_APP_URL}/settings/connectors`,
           });
-          await sendSystemEmail({ email: { to: ownerEmail, subject, textBody }, sender: getEmailSender() });
+          await sendSystemEmail({ email: { to: ownerEmail, subject, textBody, htmlBody: html }, sender: getEmailSender() });
         }
         await new DrizzleConnectorAuditWriter().writeAudit({
           action: "connector.action_failed",

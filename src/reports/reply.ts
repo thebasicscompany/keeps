@@ -1,10 +1,10 @@
 /**
  * Report email reply builder — pure string functions, no I/O, no model, no DB.
  *
- * Produces a { subject, textBody } pair from a report sections input and a
+ * Produces a { subject, textBody, html } triple from a report sections input and a
  * model-authored (or deterministic fallback) summary.
  *
- * Keeps is plain-text-first: the output is plain text, not HTML.
+ * Keeps is plain-text-first: textBody is canonical. html is an enhancement (seafoam button).
  */
 
 export type ReportEmailKind = "insights" | "waiting_on" | "stale" | "weekly" | "entity";
@@ -141,18 +141,35 @@ function buildTextBody(input: ReportEmailInput): string {
 // Public API
 // ---------------------------------------------------------------------------
 
+import { renderButtonEmailHtml } from "@/email/button-html";
+
 /**
  * Build a report email from the given input.
  *
- * Returns a { subject, textBody } pair suitable for sending via the email
- * delivery layer.
+ * Returns a { subject, textBody, html } triple suitable for sending via the email
+ * delivery layer. textBody is canonical (plain-text-first); html is an enhancement
+ * with a square seafoam "View your report" button.
  */
 export function buildReportEmail(input: ReportEmailInput): {
   subject: string;
   textBody: string;
+  html: string;
 } {
+  const textBody = buildTextBody(input);
+  const html = renderButtonEmailHtml({
+    paragraphs: [
+      input.summary.headline.trim().length > 0
+        ? input.summary.headline.trim()
+        : `You have ${input.totalOpen} open loop${input.totalOpen === 1 ? "" : "s"}.`,
+      "Your private report is ready — tap below to view it.",
+    ],
+    button: { label: "View your report", url: input.link },
+    footnote:
+      'This private link is valid for 7 days. Reply with commands like "done 1, snooze 2 until Monday" to act on these loops.',
+  });
   return {
     subject: buildSubject(input.kind, input.scope),
-    textBody: buildTextBody(input),
+    textBody,
+    html,
   };
 }

@@ -199,18 +199,29 @@ export async function notifyConnectorFailureCore(
 
     if (userRow?.email) {
       const providerLabel = provider === "slack" ? "Slack" : "Google Calendar";
+      const reconnectUrl = `${appUrl}/settings/connectors`;
+      const textBody = [
+        `Your ${providerLabel} connection seems to be having trouble — I've run into 3 failures in the past hour.`,
+        "",
+        `Reconnect at: ${reconnectUrl}`,
+        "",
+        "Once reconnected, your automations will resume normally.",
+      ].join("\n");
+      const { renderButtonEmailHtml } = await import("@/email/button-html");
+      const htmlBody = renderButtonEmailHtml({
+        paragraphs: [
+          `Your ${providerLabel} connection seems to be having trouble — I've run into 3 failures in the past hour.`,
+          "Once reconnected, your automations will resume normally.",
+        ],
+        button: { label: "Reconnect", url: reconnectUrl },
+      });
       await sender.send({
         userId,
         nudgeId: null,
         to: userRow.email,
         subject: `Your ${providerLabel} connection is having trouble`,
-        textBody: [
-          `Your ${providerLabel} connection seems to be having trouble — I've run into 3 failures in the past hour.`,
-          "",
-          `Reconnect at: ${appUrl}/settings/connectors`,
-          "",
-          "Once reconnected, your automations will resume normally.",
-        ].join("\n"),
+        textBody,
+        htmlBody,
         headers: {},
       });
       emailSent = true;

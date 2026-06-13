@@ -462,3 +462,57 @@ describe("buildConnectorReconnectEmail", () => {
     expect(buildConnectorReconnectEmail(input)).toEqual(buildConnectorReconnectEmail(input));
   });
 });
+
+// ---------------------------------------------------------------------------
+// HTML button — buildConnectorMissingEmail
+// ---------------------------------------------------------------------------
+
+describe("buildConnectorMissingEmail — html button", () => {
+  it("returns an html field with a seafoam button anchor pointing to connectUrl", () => {
+    const { html } = buildConnectorMissingEmail({
+      provider: "slack",
+      commandSummary: "ping Alex",
+      connectUrl: CONNECT_URL,
+    });
+    expect(html).toBeDefined();
+    expect(html).toContain("#C1F5DF");
+    expect(html).toContain(`href="${CONNECT_URL}"`);
+    expect(html).toContain("Connect Slack");
+  });
+
+  it("textBody still contains the connectUrl (canonical fallback preserved)", () => {
+    const { textBody } = buildConnectorMissingEmail({
+      provider: "slack",
+      commandSummary: "ping Alex",
+      connectUrl: CONNECT_URL,
+    });
+    expect(textBody).toContain(CONNECT_URL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTML button — buildConnectorReconnectEmail
+// ---------------------------------------------------------------------------
+
+describe("buildConnectorReconnectEmail — html button", () => {
+  it("returns an html field with a seafoam button anchor pointing to reconnectUrl", () => {
+    const { html } = buildConnectorReconnectEmail({
+      provider: "slack",
+      reason: null,
+      reconnectUrl: RECONNECT_URL,
+    });
+    expect(html).toBeDefined();
+    expect(html).toContain("#C1F5DF");
+    expect(html).toContain(`href="${RECONNECT_URL}"`);
+    expect(html).toContain("Reconnect Slack");
+  });
+
+  it("textBody still contains the reconnectUrl (canonical fallback preserved)", () => {
+    const { textBody } = buildConnectorReconnectEmail({
+      provider: "google_calendar",
+      reason: "refresh_error",
+      reconnectUrl: RECONNECT_URL,
+    });
+    expect(textBody).toContain(RECONNECT_URL);
+  });
+});

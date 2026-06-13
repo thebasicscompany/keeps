@@ -322,6 +322,34 @@ describe("generateReport (pure core)", () => {
     expect(result.tokenHash).toBe(expectedHash);
   });
 
+  it("sends htmlBody containing a seafoam button anchor with the /r/ report link", async () => {
+    const { ports, sender } = makePorts();
+
+    await generateReport({
+      userId: "user-1",
+      kind: "insights",
+      scope: {},
+      requestedVia: "email_command",
+      now: NOW,
+      useModel: false,
+      appBaseUrl: APP_BASE_URL,
+      ports,
+    });
+
+    const email = sender.sends[0];
+
+    // (a) html part has seafoam button with the /r/<token> link
+    expect(email.htmlBody).toBeDefined();
+    expect(email.htmlBody).toContain("#C1F5DF");
+    const linkMatch = email.textBody.match(/\/r\/([A-Za-z0-9_-]+)/);
+    expect(linkMatch).not.toBeNull();
+    const reportLink = `${APP_BASE_URL}/r/${linkMatch![1]}`;
+    expect(email.htmlBody).toContain(`href="${reportLink}"`);
+
+    // (b) canonical textBody still contains the raw link (fallback preserved)
+    expect(email.textBody).toContain(`Private view: ${reportLink}`);
+  });
+
   it("skips the send (no throw) when the owner has no email, but still persists the report", async () => {
     const { ports, reportsRepository, nudgeRepository, sender, store } = makePorts(null);
 

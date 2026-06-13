@@ -72,6 +72,7 @@ export type SendSystemNotice = (notice: {
   to: string;
   subject: string;
   textBody: string;
+  htmlBody?: string;
 }) => Promise<void>;
 
 // ---------------------------------------------------------------------------
@@ -186,12 +187,12 @@ export async function reconcileConnectorAccount(input: {
   const ownerEmail = await input.ownerResolver.findOwnerEmail(account.userId);
   let emailed = false;
   if (ownerEmail) {
-    const { subject, textBody } = buildConnectorReconnectEmail({
+    const { subject, textBody, html } = buildConnectorReconnectEmail({
       provider,
       reason,
       reconnectUrl: reconnectUrl(input.appUrl, provider),
     });
-    await input.sendSystemNotice({ to: ownerEmail, subject, textBody });
+    await input.sendSystemNotice({ to: ownerEmail, subject, textBody, htmlBody: html });
     emailed = true;
   }
 

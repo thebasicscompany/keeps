@@ -272,6 +272,34 @@ describe("buildReportEmail — exact shape (insights)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// HTML button part
+// ---------------------------------------------------------------------------
+
+describe("buildReportEmail — html button", () => {
+  it("returns an html field containing a seafoam button anchor with the report link", () => {
+    const { html } = buildReportEmail(BASE_INPUT);
+    expect(html).toBeDefined();
+    // Seafoam background color present on the anchor
+    expect(html).toContain("#C1F5DF");
+    // The link is in an <a href=
+    expect(html).toContain(`href="${LINK}"`);
+    // Button label present
+    expect(html).toContain("View your report");
+  });
+
+  it("textBody still contains the raw link (canonical fallback preserved)", () => {
+    const { textBody } = buildReportEmail(BASE_INPUT);
+    expect(textBody).toContain(LINK);
+  });
+
+  it("html footnote mentions 7 days and reply commands", () => {
+    const { html } = buildReportEmail(BASE_INPUT);
+    expect(html).toContain("7 days");
+    expect(html).toContain("done 1");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Edge cases
 // ---------------------------------------------------------------------------
 

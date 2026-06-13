@@ -171,7 +171,7 @@ export async function generateReport(
   // 6. Build the link + email. The link/textBody embed the raw token — these never
   //    cross a step boundary in the wrapper beyond the build step that minted them.
   const link = `${appBaseUrl.replace(/\/$/, "")}/r/${token}`;
-  const { subject, textBody } = buildReportEmail({
+  const { subject, textBody, html: htmlBody } = buildReportEmail({
     kind: kind as ReportEmailKind,
     scope,
     totalOpen: sections.totalOpen,
@@ -220,6 +220,7 @@ export async function generateReport(
     to: ownerEmail,
     subject,
     textBody,
+    htmlBody,
     replyTo,
     mailboxHash: `n_${nudgeId}`,
     headers: {},
@@ -339,7 +340,7 @@ export const generateReportFunction = inngest.createFunction(
 
       const env = getOptionalEnv();
       const link = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/r/${token}`;
-      const { subject, textBody } = buildReportEmail({
+      const { subject, textBody, html: htmlBody } = buildReportEmail({
         kind: kind as ReportEmailKind,
         scope,
         totalOpen: sections.totalOpen,
@@ -375,6 +376,7 @@ export const generateReportFunction = inngest.createFunction(
         nowIso: now.toISOString(),
         subject,
         textBody,
+        htmlBody,
         ownerEmail,
         expiresAtIso: expiresAt.toISOString(),
         summaryHeadline: summary.headline,
@@ -404,6 +406,7 @@ export const generateReportFunction = inngest.createFunction(
         to: built.ownerEmail!,
         subject: built.subject,
         textBody: built.textBody,
+        htmlBody: built.htmlBody,
         replyTo,
         mailboxHash: `n_${built.nudgeId}`,
         headers: {},
