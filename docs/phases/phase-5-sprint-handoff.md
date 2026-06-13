@@ -1,9 +1,10 @@
 # Phase 5 Sprint Handoff (Generated Insight Views)
 
-Orchestrated sprint: Fable oversees and verifies; subagents (Sonnet/Opus per task) write the code. Launch with a fresh session:
+Orchestrated sprint: an Opus orchestrator oversees and verifies; subagents (Sonnet/Opus per task) write the code. Launch a fresh session **on Opus** (Fable is retired):
 
 ```sh
 cd /Users/aravb/Developer/keeps && claude
+# then: /model → Opus
 ```
 
 ---
@@ -11,7 +12,7 @@ cd /Users/aravb/Developer/keeps && claude
 ## Prompt
 
 ```
-You are orchestrating Phase 5 (Generated Insight Views) for Keeps. Working directory: /Users/aravb/Developer/keeps. You (Fable) orchestrate and verify — you do NOT write the feature code yourself. Spawn a subagent per task with the Agent tool (isolation:"worktree", model per the assignments below), review every diff critically before accepting it, run the gates between waves, cherry-pick reviewed commits onto main, and run the live wave with Arav. Ground truth: docs/phases/phase-5-generated-insight-views.md (the executable plan — 10 deliverables, waves A–D, with exact files/functions/acceptance), AR-1..AR-9 in docs/phases/README.md, and git log.
+You are the Opus orchestrator for Phase 5 (Generated Insight Views) of Keeps. Working directory: /Users/aravb/Developer/keeps. You orchestrate and verify — you do NOT write the feature code yourself. Spawn a subagent per task with the Agent tool (isolation:"worktree", model per the assignments below), review every diff critically before accepting it, run the gates between waves, cherry-pick reviewed commits onto main, and run the live wave with Arav. Ground truth: docs/phases/phase-5-generated-insight-views.md (the executable plan — 10 deliverables, waves A–D, with exact files/functions/acceptance), AR-1..AR-9 in docs/phases/README.md, and git log.
 
 THE GOAL (one sentence): a user emails Keeps a natural-language insight command ("what are my insights?", "what am I waiting on?", "what is stale?", "weekly summary", "show Acme loops") and Keeps replies privately with a short ranked summary + a signed 7-day link to a mobile-friendly memo report page that groups loops (needs you / due soon / overdue / waiting on others / stale / recently done), shows source-evidence chips, and exposes per-row actions (done/dismiss/snooze/draft-nudge) that mutate state through the SAME service layer email replies use. Ranking + inclusion are deterministic; only the human-facing summary text is model-authored (AR-8).
 
@@ -59,7 +60,7 @@ Wave C — workflow + UI (after B; parallel):
   C4 [sonnet]: src/reports/components/{ReportHeader,ReportSection,LoopRow,SourceEvidenceChip,RowActions}.tsx — shadcn from src/components/ui, mobile-first (actions stack under row below sm), no new primitives, sparse/utilitarian. Match the square seafoam design system (seafoam #C1F5DF / ink #14140F / paper #FAFAF8; radius 0; Bricolage Grotesque) — see app/settings/connectors/page.tsx + app/get-started-stepper.tsx for tokens.
   C5 [sonnet]: app/api/reports/[token]/actions/route.ts — POST {loopId, action, snoozeUntil?} → validate token → resolve user_id → applyReportRowAction → return updated section JSON for client re-render. "draft_nudge" enqueues a pending nudge (no outbound until approved).
 
-Wave D — YOU (Fable) + one agent: end-to-end + keystone tests, full gates, live wave with Arav:
+Wave D — YOU (the orchestrator) + one agent: end-to-end + keystone tests, full gates, live wave with Arav:
   D2 (KEYSTONE) [you review hardest]: src/loops/parity.test.ts — email-command path vs row-action path produce identical loop_events (except metadata.source) + identical loop.updated for done/dismiss/snooze. Plus D1 insights-e2e, D3 token expiry/forgery, D4 boundary-clock query tests, D5 page render smoke. (One sonnet agent may write D1/D3/D4/D5; you own reviewing D2's parity claim adversarially.)
   Then: full gates (pnpm typecheck && pnpm test && pnpm build), apply migrations 0013/0014 to prod via psql, vercel deploy --prod --yes, verify generate-report registered by behavior, then LIVE wave with Arav: email "what are my insights?" → private reply with ranked summary + /r/<token> link → open the link → memo page renders his real loops → tap "done" on a row → loop actually transitions (same as an email reply) → re-open shows it moved to Recently done. Update docs/phases/README.md Phase 5 row to done; write the Closeout section.
 
