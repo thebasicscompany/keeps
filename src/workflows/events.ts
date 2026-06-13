@@ -1,6 +1,6 @@
 import { inngest } from "@/workflows/client";
 import type { NormalizedEmail } from "@/email/normalize";
-import type { LoopStatus } from "@/agent/schemas";
+import type { LoopStatus, ConnectorCommandDraft } from "@/agent/schemas";
 
 // ---------------------------------------------------------------------------
 // EventMap — the canonical event registry for all Keeps workflow events.
@@ -108,6 +108,73 @@ export type EventMap = {
     requestedVia: string;
     inboundEmailId?: string;
     nudgeId?: string;
+  };
+
+  // -------------------------------------------------------------------------
+  // Phase 4 connector events
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted by the intent router (process-email) after a connector command is
+   * parsed. The full parsed ConnectorCommandDraft travels inline because the
+   * connector_actions row cannot be created until Wave D resolves the account
+   * (connector_account_id is NOT NULL) — there is no connectorActionId yet.
+   */
+  "connector.action_requested": {
+    userId: string;
+    inboundEmailId: string;
+    emailThreadId: string;
+    provider: "slack" | "google_calendar";
+    kind: "slack_dm" | "calendar_event";
+    command: ConnectorCommandDraft;
+  };
+
+  /**
+   * Emitted by the Nango webhook handler on a successful OAuth connection
+   * (auth.success). The Wave C hydration step later populates
+   * externalAccountEmail from the Nango connection metadata.
+   */
+  "connector.connected": {
+    userId: string;
+    provider: "slack" | "google_calendar";
+    connectorAccountId: string;
+    externalAccountEmail: string | null;
+  };
+
+  /**
+   * Emitted when a connector account is revoked — either by the user
+   * disconnecting, a Nango auth_error / refresh_error webhook, or an
+   * admin disable action.
+   */
+  "connector.revoked": {
+    userId: string;
+    provider: "slack" | "google_calendar";
+    connectorAccountId: string;
+    reason: string;
+  };
+
+  /**
+   * Emitted by the connector-command handler (Wave D) after a successful
+   * tool execution (Slack chat.postMessage / Calendar events.insert).
+   */
+  "connector.action_completed": {
+    userId: string;
+    connectorActionId: string;
+    provider: "slack" | "google_calendar";
+    kind: "slack_dm" | "calendar_event";
+    result: unknown;
+  };
+
+  /**
+   * Emitted by the connector-command handler when execution fails after all
+   * retries. `retryable` indicates whether the caller may safely re-submit.
+   */
+  "connector.action_failed": {
+    userId: string;
+    connectorActionId: string;
+    provider: "slack" | "google_calendar";
+    kind: "slack_dm" | "calendar_event";
+    error: { code: string; message: string; retryable: boolean };
   };
 };
 

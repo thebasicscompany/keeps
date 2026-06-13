@@ -9,6 +9,13 @@ export type ClassifyEmailIntentResult = {
   intent: EmailIntent;
   basis: "rule" | "model";
   matchedRule?: string;
+  /**
+   * Set to 'connector_command' when the deterministic pre-rule matches a
+   * connector command (e.g. `@Slack ...` or `@Calendar ...` at the start of
+   * the email body). The route-email dispatcher uses this to branch into the
+   * connector-command handler before reaching the generic command branch.
+   */
+  subtype?: "connector_command";
 };
 
 /**
@@ -21,6 +28,22 @@ export type ClassifyEmailIntentResult = {
  */
 export function classifyEmailIntent({ body }: ClassifyEmailIntentInput): ClassifyEmailIntentResult {
   const lower = body.trim().toLowerCase();
+
+  // ---- CONNECTOR-COMMAND PRE-RULE (Phase 4 B4) ----
+  // Deterministic first-line match: if the first NON-EMPTY line of the body starts
+  // with @Slack or @Calendar (case-insensitive), classify as command/connector_command
+  // without a model call. This intentionally covers only first-line mentions — mid-text
+  // mentions like "can you @slack ping Maya?" deliberately fall through to existing rules
+  // in V0 (model-classification for mid-text is deferred to a future phase).
+  const firstNonEmptyLine = body.split("\n").find((line) => line.trim().length > 0) ?? "";
+  if (/^\s*@(slack|calendar)\b/i.test(firstNonEmptyLine)) {
+    return {
+      intent: "command",
+      basis: "rule",
+      matchedRule: "connector-command",
+      subtype: "connector_command",
+    };
+  }
 
   if (/^correct\b/.test(lower)) {
     return { intent: "correction", basis: "rule", matchedRule: "correction-prefix" };

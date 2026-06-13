@@ -14,6 +14,7 @@ import {
   type ReplyTargetStore,
   type ResolvedReplyTarget,
 } from "@/loops/resolve-reply-target";
+import type { ConnectorCommandDraft } from "@/agent/schemas";
 import type { EventMap, KeepsWorkflowEvent } from "@/workflows/events";
 import {
   answerQuestion,
@@ -29,8 +30,12 @@ import {
  * Branch label recorded on `email.classified`. Mirrors `intent` today but is kept
  * distinct so a future multi-intent email can dispatch a different branch than the
  * single classified intent (forward compatibility, see Events section of the plan).
+ *
+ * 'connector_command' is a sub-branch of 'command' — the intent field on
+ * email.classified carries 'command', but branch carries 'connector_command' so
+ * downstream consumers can distinguish connector commands from loop commands.
  */
-export type RouterBranch = EmailIntent;
+export type RouterBranch = EmailIntent | "connector_command";
 
 export type RouterClassified = {
   name: "email.classified";
@@ -75,6 +80,24 @@ export type RouterDeps = {
    * the question branch degrades to the polite fallback even for an insights request.
    */
   questionPorts?: AnswerQuestionPorts;
+  /**
+   * Connector command parser (Phase 4 B4). Optional port — when absent the connector
+   * branch degrades to a polite stub ("Connector commands land soon.") so pre-B4
+   * callers and tests that never exercise the connector branch don't have to provide it.
+   *
+   * The real implementation lives at src/agent/parse-connector-command.ts (parallel
+   * task B3). process-email.ts wires the real parser here; tests inject a fake.
+   *
+   * Signature mirrors parseConnectorCommand from B3:
+   *   input.emailBody — the stripped/plain body text
+   *   input.now       — current timestamp for relative time resolution
+   *   input.timezone  — IANA timezone string (optional; defaults to UTC in the parser)
+   *   options.useModel — whether to call the AI model (false in tests / deterministic mode)
+   */
+  parseConnectorCommand?: (
+    input: { emailBody: string; now: Date; timezone?: string },
+    options: { useModel: boolean },
+  ) => Promise<ConnectorCommandDraft>;
 };
 
 export type RouteEmailResult = {
@@ -124,19 +147,20 @@ export async function routeEmail(inboundEmailId: string, deps: RouterDeps): Prom
     };
   }
 
-  const intent = classifyEmailIntent({
+  const classification = classifyEmailIntent({
     body: email.normalized.textBody,
     subject: email.normalized.subject,
-  }).intent;
+  });
+  const intent = classification.intent;
 
-  const classified = (branchIntent: EmailIntent, loopCount: number): RouterClassified => ({
+  const classified = (branch: RouterBranch, loopCount: number): RouterClassified => ({
     name: "email.classified",
     data: {
       inboundEmailId: email.id,
       emailThreadId: email.emailThreadId,
       userId: email.userId,
       intent,
-      branch: branchIntent,
+      branch,
       loopCount,
     },
   });
@@ -150,6 +174,12 @@ export async function routeEmail(inboundEmailId: string, deps: RouterDeps): Prom
   }
 
   // ---- (2) INTENT DISPATCH ----
+  // Connector-command sub-branch: checked BEFORE the generic command switch so that
+  // @Slack / @Calendar emails never fall into the loop-command branch.
+  if (classification.subtype === "connector_command") {
+    return runConnectorCommandBranch(email, deps, classified("connector_command", 0));
+  }
+
   switch (intent) {
     case "capture":
       return runCaptureBranch(inboundEmailId, deps);
@@ -167,6 +197,57 @@ export async function routeEmail(inboundEmailId: string, deps: RouterDeps): Prom
 }
 
 type RoutableEmail = NonNullable<Awaited<ReturnType<LoopProcessingRepository["findInboundEmailById"]>>>;
+
+// ---------------------------------------------------------------------------
+// Connector command branch (Phase 4 B4)
+// ---------------------------------------------------------------------------
+
+async function runConnectorCommandBranch(
+  email: RoutableEmail,
+  deps: RouterDeps,
+  classified: RouterClassified,
+): Promise<RouteEmailResult> {
+  // If the parser port is absent (pre-B3 callers, tests that don't wire it),
+  // degrade to a polite stub so existing tests remain green.
+  if (!deps.parseConnectorCommand) {
+    return finishStub(email, deps, classified, "Connector commands land soon.");
+  }
+
+  const emailBody = email.normalized.strippedTextReply ?? email.normalized.textBody;
+  const timezone = await resolveUserTimezone(deps, email.userId);
+
+  const command = await deps.parseConnectorCommand(
+    { emailBody, now: deps.now ?? new Date(), timezone },
+    { useModel: deps.useModel ?? false },
+  );
+
+  // Build the connector.action_requested event. The connector_actions row is
+  // created at EXECUTE time by Wave D (connector_account_id is NOT NULL so the
+  // row cannot exist before an account is resolved). The parsed command travels
+  // inline so the handler has everything it needs to proceed.
+  const actionRequestedEvent: KeepsWorkflowEvent = {
+    name: "connector.action_requested",
+    data: {
+      userId: email.userId,
+      inboundEmailId: email.id,
+      emailThreadId: email.emailThreadId,
+      provider: command.provider,
+      kind: command.kind,
+      command,
+    },
+  };
+
+  // The downstream connector workflow owns ALL user-facing replies (connect-link /
+  // clarification / approval email). This branch sends no nudge itself.
+  return {
+    status: "processed",
+    intent: "command",
+    branch: "connector_command",
+    events: [classified, actionRequestedEvent],
+    loops: [],
+    nudgeId: null,
+  };
+}
 
 async function runCaptureBranch(inboundEmailId: string, deps: RouterDeps): Promise<RouteEmailResult> {
   const result = await processInboundEmailForLoops({
