@@ -10,6 +10,8 @@ import { sweepDigestsFunction } from "@/workflows/functions/sweep-digests";
 import { sendDigestFunction } from "@/workflows/functions/send-digest";
 import { handleApprovalFunction } from "@/workflows/functions/handle-approval";
 import { sweepApprovalExpiryFunction } from "@/workflows/functions/sweep-approval-expiry";
+import { hydrateConnectorAccountFunction } from "@/workflows/functions/hydrate-connector-account";
+import { sweepConnectorStatusFunction } from "@/workflows/functions/sweep-connector-status";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -25,5 +27,8 @@ export const { GET, POST, PUT } = serve({
     sendDigestFunction,
     handleApprovalFunction,
     sweepApprovalExpiryFunction,
+    // Phase 4: connector account lifecycle (hydration + status sweep)
+    hydrateConnectorAccountFunction,
+    sweepConnectorStatusFunction,
   ],
 });
