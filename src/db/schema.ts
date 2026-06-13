@@ -68,6 +68,7 @@ export const auditActionEnum = pgEnum("audit_action", [
   "report.action_applied",
   // Phase 6 additions
   "email.outbound.suppressed",
+  "email.outbound.reactivated",
   "email.deleted_by_user",
   "data.export_requested",
   "data.export_completed",
