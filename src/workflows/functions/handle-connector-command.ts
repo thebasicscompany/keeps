@@ -70,6 +70,11 @@ import {
   buildNudgeReplyTo,
   type EmailSender,
 } from "@/email/outbound";
+import {
+  reconcileConnectorAccounts,
+  type ReconcileComposioClient,
+  type FetchAccountDetail,
+} from "@/connectors/reconcile";
 
 // ---------------------------------------------------------------------------
 // Ports — pure interfaces so the unit test injects in-memory fakes.
@@ -407,7 +412,30 @@ export const handleConnectorCommandFunction = inngest.createFunction(
       };
     });
 
+    // ── (a2) Self-heal: if the DB row is missing, reconcile against Composio BEFORE
+    //   sending the connect-link email. A user who completed OAuth but whose webhook
+    //   was not delivered will surface here and proceed to approval instead of being
+    //   incorrectly told to connect. Runs in its own step so it is memoized on retry.
+    let reconciledAccount:
+      | { id: string; userId: string; composioConnectedAccountId: string }
+      | null = null;
+
     if (accountStep.status === "missing") {
+      reconciledAccount = await step.run("reconcile-connector-account", async () => {
+        const accounts = new DrizzleConnectorAccountsRepository();
+        await reconcileConnectorAccounts({ userId, provider: accountProvider, accountsRepo: accounts });
+        // Re-check after reconcile.
+        const found = await accounts.findActiveByUserAndProvider(userId, accountProvider);
+        if (!found) return null;
+        return {
+          id: found.id,
+          userId: found.userId,
+          composioConnectedAccountId: found.composioConnectedAccountId,
+        };
+      });
+    }
+
+    if (accountStep.status === "missing" && reconciledAccount === null) {
       await step.run("send-connect-link", async () => {
         const env = getEnv();
         const ownerEmail = await new DrizzleOwnerResolver().findOwnerEmail(userId);
@@ -428,7 +456,8 @@ export const handleConnectorCommandFunction = inngest.createFunction(
       return { ok: true, branch: "missing_account" };
     }
 
-    const account = accountStep.account;
+    // accountStep.status === "found" OR reconcile surfaced the account.
+    const account = accountStep.status === "found" ? accountStep.account : reconciledAccount!;
 
     // ── (b) Resolve recipient (slack_dm). ambiguous/not_found → clarify, stop.
     const recipientStep = await step.run("resolve-recipient", async () => {

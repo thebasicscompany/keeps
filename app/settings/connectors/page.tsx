@@ -22,6 +22,7 @@ import { userIdentities, connectorAccounts } from "@/db/schema";
 import type { ConnectorAccount } from "@/db/schema";
 import { startConnectorConnect, startConnectorReconnect, startConnectorDisconnect } from "./actions";
 import { ConnectButton } from "./connect-button";
+import { reconcileConnectorAccounts } from "@/connectors/reconcile";
 
 // ---------------------------------------------------------------------------
 // Design tokens — copied from app/settings/page.tsx / get-started-stepper.tsx
@@ -175,6 +176,32 @@ export default async function ConnectorsPage() {
 
   if (!clerkUserId) {
     redirect("/sign-in?redirect_url=/settings/connectors" as Route);
+  }
+
+  // Resolve the internal Keeps user UUID from the Clerk user ID so we can
+  // call reconcileConnectorAccounts (which takes the internal UUID).
+  const db = getDb();
+  const [identity] = await db
+    .select({ userId: userIdentities.userId })
+    .from(userIdentities)
+    .where(
+      and(
+        eq(userIdentities.provider, "clerk"),
+        eq(userIdentities.providerAccountId, clerkUserId),
+      ),
+    )
+    .limit(1);
+
+  // Best-effort reconcile: pull Composio as the source of truth so the page
+  // always reflects a connection that completed OAuth even if the webhook was
+  // not delivered. A Composio outage must not break the settings page, so any
+  // error here is swallowed — the page falls back to whatever is already in DB.
+  if (identity) {
+    try {
+      await reconcileConnectorAccounts({ userId: identity.userId });
+    } catch {
+      // Intentionally swallowed — Composio outage must not break the page.
+    }
   }
 
   const accounts = await resolveConnectors(clerkUserId);

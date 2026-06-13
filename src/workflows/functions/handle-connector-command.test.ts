@@ -423,3 +423,103 @@ describe("executedConfirmationLine", () => {
     ).toContain("failed");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Self-heal: reconcile surfaces a connected account before the connect-link
+// email is sent.
+//
+// The Inngest wrapper (not tested here — it requires step.run) chains:
+//   1. loadConnectorAccount → missing
+//   2. reconcileConnectorAccounts (injectable seam) → upserts the row
+//   3. findActiveByUserAndProvider → found → proceed to approval
+//
+// This test verifies that chain end-to-end using in-memory fakes. It mimics
+// the wrapper's reconcile-then-recheck logic without the Inngest step harness.
+// ---------------------------------------------------------------------------
+
+import { FakeConnectorAccountsRepository, makeAccountRow } from "@/connectors/accounts-repository.test";
+import { reconcileConnectorAccounts } from "@/connectors/reconcile";
+import type { ConnectedAccountListResponse, ConnectedAccountRetrieveResponse } from "@composio/core";
+
+describe("load-connector-account self-heal via reconcile", () => {
+  it("when no local row exists but Composio has an ACTIVE account, reconcile creates the row and re-check finds it", async () => {
+    const userId = randomUUID();
+    const repo = new FakeConnectorAccountsRepository();
+
+    // Step 1: initial load returns missing (no DB row yet).
+    const initial = await loadConnectorAccount({ userId, provider: "slack", accounts: repo });
+    expect(initial.status).toBe("missing");
+
+    // Step 2: reconcile — fake Composio client returns one ACTIVE slack account.
+    const composioId = "ca_self_heal_1";
+    await reconcileConnectorAccounts({
+      userId,
+      provider: "slack",
+      accountsRepo: repo,
+      client: {
+        listConnectedAccounts: async (): Promise<ConnectedAccountListResponse> => ({
+          items: [
+            {
+              id: composioId,
+              status: "ACTIVE",
+              statusReason: null,
+              toolkit: { slug: "slack" },
+              isDisabled: false,
+              createdAt: "2026-06-13T12:00:00.000Z",
+              updatedAt: "2026-06-13T12:00:00.000Z",
+              authConfig: {} as ConnectedAccountListResponse["items"][0]["authConfig"],
+              experimental: undefined,
+            },
+          ] as unknown as ConnectedAccountListResponse["items"],
+          totalPages: 1,
+          nextCursor: null,
+        }),
+      },
+      fetchDetail: async (): Promise<ConnectedAccountRetrieveResponse> =>
+        ({
+          id: composioId,
+          status: "ACTIVE",
+          statusReason: null,
+          toolkit: { slug: "slack" },
+          isDisabled: false,
+          createdAt: "2026-06-13T12:00:00.000Z",
+          updatedAt: "2026-06-13T12:00:00.000Z",
+          state: { email: "user@slack.com" },
+          authConfig: {},
+          experimental: undefined,
+        }) as unknown as ConnectedAccountRetrieveResponse,
+    });
+
+    // Step 3: re-check — the row is now present and the wrapper proceeds to approval.
+    const afterReconcile = await loadConnectorAccount({ userId, provider: "slack", accounts: repo });
+    expect(afterReconcile.status).toBe("found");
+    if (afterReconcile.status === "found") {
+      expect(afterReconcile.account.composioConnectedAccountId).toBe(composioId);
+      expect(afterReconcile.account.status).toBe("active");
+    }
+  });
+
+  it("when Composio has no ACTIVE account for this user, reconcile is a no-op and result stays missing", async () => {
+    const userId = randomUUID();
+    const repo = new FakeConnectorAccountsRepository();
+
+    await reconcileConnectorAccounts({
+      userId,
+      provider: "slack",
+      accountsRepo: repo,
+      client: {
+        listConnectedAccounts: async (): Promise<ConnectedAccountListResponse> => ({
+          items: [] as unknown as ConnectedAccountListResponse["items"],
+          totalPages: 1,
+          nextCursor: null,
+        }),
+      },
+      fetchDetail: async () => {
+        throw new Error("should not be called");
+      },
+    });
+
+    const result = await loadConnectorAccount({ userId, provider: "slack", accounts: repo });
+    expect(result.status).toBe("missing");
+  });
+});
