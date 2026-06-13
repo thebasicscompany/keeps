@@ -15,6 +15,11 @@ import { sweepConnectorStatusFunction } from "@/workflows/functions/sweep-connec
 import { handleConnectorCommandFunction } from "@/workflows/functions/handle-connector-command";
 import { generateReportFunction } from "@/workflows/functions/generate-report";
 import { rawEmailRetentionPurgeFunction } from "@/workflows/functions/raw-email-retention-purge";
+import { processDataDeletionFunction } from "@/workflows/functions/process-data-deletion";
+import { generateDataExportFunction } from "@/workflows/functions/generate-data-export";
+import { sendExportEmailFunction } from "@/workflows/functions/send-export-email";
+import { scoreNudgeFeedbackFunction } from "@/workflows/functions/score-nudge-feedback";
+import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-feedback";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -39,5 +44,13 @@ export const { GET, POST, PUT } = serve({
     generateReportFunction,
     // Phase 6 D10: raw-email retention scrub cron (daily 03:00 UTC)
     rawEmailRetentionPurgeFunction,
+    // Phase 6 B2: account-wide deletion (data.delete_requested → Clerk + cascade)
+    processDataDeletionFunction,
+    // Phase 6 B3: data export (data.export_requested → build JSON → email link)
+    generateDataExportFunction,
+    sendExportEmailFunction,
+    // Phase 6 B5: daily quality-metric crons
+    scoreNudgeFeedbackFunction,
+    scoreDraftFeedbackFunction,
   ],
 });
