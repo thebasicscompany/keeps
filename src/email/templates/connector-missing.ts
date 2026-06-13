@@ -4,7 +4,10 @@
  * Pure: no I/O. Returns { subject, textBody } — callers in Wave D wire the sender.
  */
 
-export type ConnectorProvider = "slack" | "google_calendar";
+// Canonical provider union lives in @/agent/schemas — re-exported here so the
+// template modules stay import-light for callers.
+export type { ConnectorProvider } from "@/agent/schemas";
+import type { ConnectorProvider } from "@/agent/schemas";
 
 export interface ConnectorMissingEmailInput {
   provider: ConnectorProvider;
