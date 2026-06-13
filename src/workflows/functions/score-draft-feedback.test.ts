@@ -137,7 +137,7 @@ describe.skipIf(!TEST_DATABASE_URL)(
       await seedApproval(db, userId, d1, "approved", decidedAt);
       await seedApproval(db, userId, d2, "approved", decidedAt);
 
-      const result = await scoreDraftFeedback({ now: NOW, db });
+      const result = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
 
       expect(result.draftApprovalRate).toBeCloseTo(1.0, 5);
       // No edited → edit rate = 0 / (2 + 0) = 0
@@ -206,7 +206,7 @@ describe.skipIf(!TEST_DATABASE_URL)(
         new Date(decidedAt.getTime() + 1 * 60 * 60 * 1000),
       );
 
-      const result = await scoreDraftFeedback({ now: NOW, db });
+      const result = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
 
       // approved=3 (d1, d2, d4's second approval), rejected=1 (d3), edited=1 (d4's rejection)
       // Actually: approved count includes ALL 'approved' rows: d1, d2, d4 = 3
@@ -239,7 +239,7 @@ describe.skipIf(!TEST_DATABASE_URL)(
       await seedApproval(db, userId, d1, "rejected", decidedAt);
       await seedApproval(db, userId, d2, "rejected", decidedAt);
 
-      const result = await scoreDraftFeedback({ now: NOW, db });
+      const result = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
 
       expect(result.draftApprovalRate).toBeCloseTo(0.0, 5);
       expect(result.draftEditRate).toBeCloseTo(0.0, 5);
@@ -260,9 +260,9 @@ describe.skipIf(!TEST_DATABASE_URL)(
       const d1 = await seedDraft(db, userId);
       await seedApproval(db, userId, d1, "approved", new Date(NOW.getTime() - 1 * 24 * 60 * 60 * 1000));
 
-      const result1 = await scoreDraftFeedback({ now: NOW, db });
+      const result1 = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
       // Should not throw:
-      const result2 = await scoreDraftFeedback({ now: NOW, db });
+      const result2 = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
 
       expect(result2.draftApprovalRate).toBe(result1.draftApprovalRate);
       expect(result2.draftEditRate).toBe(result1.draftEditRate);
@@ -308,7 +308,7 @@ describe.skipIf(!TEST_DATABASE_URL)(
       const d2 = await seedDraft(db, userId);
       await seedApproval(db, userId, d2, "rejected", new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000));
 
-      const result = await scoreDraftFeedback({ now: NOW, db });
+      const result = await scoreDraftFeedback({ now: NOW, db, scopeUserId: userId });
 
       // Only the in-window approval should count
       expect(result.counts.approved).toBe(1);

@@ -60,6 +60,12 @@ export interface ScoreDraftFeedbackOptions {
   now: Date;
   /** Injectable DB connection; defaults to getDb(). */
   db?: DraftFeedbackDb;
+  /**
+   * Test-only: restrict the (otherwise global) aggregation to a single user so
+   * DB-gated tests are deterministic under parallel workers sharing one Postgres.
+   * Production omits this — the cron aggregates across all users.
+   */
+  scopeUserId?: string;
 }
 
 export interface ScoreDraftFeedbackResult {
@@ -94,7 +100,7 @@ function toUtcDateIso(date: Date): string {
 export async function scoreDraftFeedback(
   options: ScoreDraftFeedbackOptions,
 ): Promise<ScoreDraftFeedbackResult> {
-  const { now } = options;
+  const { now, scopeUserId } = options;
   const db = options.db ?? getDb();
 
   const todayIso = toUtcDateIso(now);
@@ -118,6 +124,7 @@ export async function scoreDraftFeedback(
         sql`${approvalRequests.status} IN ('approved', 'rejected')`,
         // Use decidedAt for the window; fall back to createdAt if decidedAt is null
         sql`COALESCE(${approvalRequests.decidedAt}, ${approvalRequests.createdAt}) >= ${windowStart.toISOString()}::timestamptz`,
+        scopeUserId ? sql`${approvalRequests.userId} = ${scopeUserId}` : undefined,
       ),
     );
 

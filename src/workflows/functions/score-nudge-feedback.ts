@@ -37,6 +37,12 @@ export interface ScoreNudgeFeedbackOptions {
   now: Date;
   /** Injectable DB connection; defaults to getDb(). */
   db?: NudgeFeedbackDb;
+  /**
+   * Test-only: restrict the (otherwise global) aggregation to a single user so
+   * DB-gated tests are deterministic under parallel workers sharing one Postgres.
+   * Production omits this — the cron aggregates across all users.
+   */
+  scopeUserId?: string;
 }
 
 export interface ScoreNudgeFeedbackResult {
@@ -74,7 +80,7 @@ function toUtcDateIso(date: Date): string {
 export async function scoreNudgeFeedback(
   options: ScoreNudgeFeedbackOptions,
 ): Promise<ScoreNudgeFeedbackResult> {
-  const { now } = options;
+  const { now, scopeUserId } = options;
   const db = options.db ?? getDb();
 
   const todayIso = toUtcDateIso(now);
@@ -104,6 +110,7 @@ export async function scoreNudgeFeedback(
         isNotNull(nudges.loopId),
         isNotNull(nudges.sentAt),
         gte(nudges.sentAt, windowStart),
+        scopeUserId ? sql`${nudges.userId} = ${scopeUserId}` : undefined,
       ),
     );
 
