@@ -16,27 +16,20 @@
  * case uses the REAL parser, which leaves whenAt null.
  *
  * ───────────────────────────────────────────────────────────────────────────────
- * BUG FOUND (do NOT fix in source per task rules — flagged for the orchestrator):
+ * BUG FOUND BY THIS FIXTURE, NOW FIXED:
  *
- *   The reversible confirmation-window TTL and the waitForEvent timeout are BOTH 15m
- *   (FIFTEEN_MIN_MS / CONFIRM_WINDOW_TIMEOUT in handle-connector-command.ts). So when
- *   the timeout fires, the approval row is ALREADY clock-expired (expiresAt == the
- *   timeout instant, and decideApproval guards with `expiresAt <= now`). The wrapper's
- *   `confirm-on-timeout` step calls decideApproval(decision:'approved', channel:'cron')
- *   with `now` at the timeout — which returns { status:'expired' } and DOES NOT approve
- *   the row. The wrapper then ignores that return, sets `decision = "approved"`, and
- *   calls executeConnectorAction anyway; the AR-7 gate loads the still-'pending' (now
- *   past-expiry) approval and DENIES it. Net effect: a reversible self-calendar event
- *   the user simply ignored is NEVER created — contradicting the "I'll add it in 15
- *   minutes unless you cancel" promise.
+ *   Originally the reversible confirmation-window approval TTL and the waitForEvent
+ *   timeout were BOTH 15m, so when the timeout fired the approval was already
+ *   clock-expired, decideApproval(approved) was refused, and AR-7 denied the execute —
+ *   the self-calendar event the user simply ignored was NEVER created, contradicting
+ *   "I'll add it in 15 minutes unless you cancel."
  *
- *   Suggested fix (source): give the confirmation-window approval a TTL strictly LONGER
- *   than the waitForEvent timeout (e.g. expiresAt = now + 15m + slack, or mint the
- *   approval with a far-future TTL and rely on the timeout alone to gate it), OR have
- *   confirm-on-timeout decide 'approved' on a clock strictly before expiresAt. The
- *   happy-path test below confirms a hair before expiry to prove the auto-confirm path
- *   works when the grant is valid; the "BUG WITNESS" test pins the current broken
- *   boundary so the fix is observable.
+ *   FIX (handle-connector-command.ts, mirrored in e2e-harness.ts): the reversible
+ *   approval TTL is now CONFIRM_WINDOW_TTL_MS (1h), STRICTLY LONGER than the 15m
+ *   waitForEvent timeout. When the timeout fires at 15m the grant is still valid, so
+ *   auto-confirm succeeds and AR-7 allows the execute. The happy-path test below now
+ *   confirms at the REAL 15m timeout and asserts the event IS created; the fail-closed
+ *   test asserts AR-7 still denies a genuinely-expired grant (past the 1h TTL).
  * ───────────────────────────────────────────────────────────────────────────────
  */
 
@@ -136,20 +129,14 @@ describe.skipIf(!TEST_DATABASE_URL)("E5 — calendar confirmation window", () =>
     // Not executed yet.
     expect(calls).toHaveLength(0);
 
-    // ── The confirmation-window timeout fires → auto-confirm via channel 'cron' → execute once.
-    //
-    // NOTE ON THE CLOCK (see the BUG note at the bottom of this file): the reversible
-    // confirmation window's approval TTL (15m) EQUALS the waitForEvent timeout (15m), so
-    // when the timeout fires at expiresAt the approval is ALREADY clock-expired and
-    // decideApproval refuses to confirm it. The intended invariant — "letting the window
-    // lapse auto-confirms and executes the self-event once" — only holds while the grant
-    // is still valid. We confirm a hair BEFORE expiry (the grant valid) to prove the
-    // auto-confirm → execute-once path itself works; the boundary defect is asserted
-    // separately below.
-    const beforeExpiry = new Date(NOW.getTime() + 15 * 60 * 1000 - 1000);
-    await autoConfirmOnTimeout(h.db, outcome.approvalId, beforeExpiry);
+    // ── The confirmation-window timeout fires at the REAL 15m boundary → auto-confirm
+    // via channel 'cron' → execute once. The approval TTL is now 1h (> the 15m window),
+    // so the grant is still valid when the timeout auto-confirms it — the event the user
+    // ignored IS created, as promised. (This is the regression guard for the bug.)
+    const atTimeout = new Date(NOW.getTime() + 15 * 60 * 1000);
+    await autoConfirmOnTimeout(h.db, outcome.approvalId, atTimeout);
     const executed = await executeAndConfirm(
-      { ...deps, now: beforeExpiry },
+      { ...deps, now: atTimeout },
       outcome.connectorActionId,
     );
 
@@ -164,20 +151,18 @@ describe.skipIf(!TEST_DATABASE_URL)("E5 — calendar confirmation window", () =>
     expect(row.status).toBe("completed");
   });
 
-  it("BUG WITNESS: auto-confirm AT/AFTER the window's expiry is rejected — the self-event never runs", async () => {
-    // This documents a real defect (see the BUG note below). In the live wrapper the
-    // reversible approval TTL (15m) == the waitForEvent timeout (15m), so the timeout
-    // fires when the approval has ALREADY expired by the clock. decideApproval's expiry
-    // guard then refuses to flip it to 'approved' (returns { status: 'expired' }), the row
-    // stays 'pending', and executeConnectorAction's AR-7 gate denies it. Net effect: a
-    // reversible self-calendar event that the user simply ignored would NEVER be created,
-    // even though the product intent is "add it unless you cancel".
+  it("FAIL-CLOSED: a genuinely-expired grant (confirm past the 1h TTL) is still denied — AR-7 backstop", async () => {
+    // After the fix, the 15m timeout auto-confirms well within the 1h TTL, so the normal
+    // path executes. This test pins the AR-7 fail-closed backstop: if a confirm somehow
+    // lands AFTER the approval's real expiry (past the 1h TTL — e.g. the sweep already
+    // expired it), decideApproval refuses to flip it and AR-7 DENIES the execute. We must
+    // never execute against an expired grant, even on the auto-confirm path.
     const resolved: ConnectorCommandDraft = {
       provider: "google_calendar",
       kind: "calendar_event",
       destination: { kind: "self", nameText: null, emailText: null },
       message: null,
-      eventTitle: "Lapsed window event",
+      eventTitle: "Expired grant event",
       whenText: "tomorrow 9am",
       whenAt: "2026-06-14T13:00:00.000Z",
       durationMinutes: 30,
@@ -214,12 +199,12 @@ describe.skipIf(!TEST_DATABASE_URL)("E5 — calendar confirmation window", () =>
     const outcome = await runUpToApproval(deps);
     if (outcome.branch !== "awaiting_decision") throw new Error("expected awaiting_decision");
 
-    // Timeout fires 1s PAST expiry — exactly what the live wrapper does.
-    const afterExpiry = new Date(NOW.getTime() + 15 * 60 * 1000 + 1000);
-    await autoConfirmOnTimeout(h.db, outcome.approvalId, afterExpiry);
-    const executed = await executeAndConfirm({ ...deps, now: afterExpiry }, outcome.connectorActionId);
+    // Confirm PAST the real approval expiry (1h TTL + 1s) — the grant is genuinely dead.
+    const afterRealExpiry = new Date(NOW.getTime() + 60 * 60 * 1000 + 1000);
+    await autoConfirmOnTimeout(h.db, outcome.approvalId, afterRealExpiry);
+    const executed = await executeAndConfirm({ ...deps, now: afterRealExpiry }, outcome.connectorActionId);
 
-    // BUG: the self-event is DENIED instead of created; the calendar executor never runs.
+    // Fail-closed: an expired grant is DENIED, the calendar executor never runs.
     expect(executed.status).toBe("denied");
     expect(calls).toHaveLength(0);
     const row = await getConnectorAction(h.db, outcome.connectorActionId);

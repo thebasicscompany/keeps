@@ -355,10 +355,22 @@ export class DrizzleConnectorAuditWriter implements ConnectorAuditWriter {
 
 /** Hard-approval window (slack_dm, calendar-with-attendees). Overridable for tests. */
 const HARD_APPROVAL_TIMEOUT = process.env.CONNECTOR_APPROVAL_TIMEOUT_OVERRIDE ?? "7d";
-/** Confirmation window for reversible (self-calendar) actions. */
+/** Confirmation window for reversible (self-calendar) actions: the user has this
+ * long to cancel before the event is auto-created. */
 const CONFIRM_WINDOW_TIMEOUT = process.env.CONNECTOR_CONFIRM_TIMEOUT_OVERRIDE ?? "15m";
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+/**
+ * Approval TTL for a reversible confirmation-window action. This MUST be strictly
+ * LONGER than CONFIRM_WINDOW_TIMEOUT: when the wait times out (~15m), the
+ * confirm-on-timeout step calls decideApproval(approved) — which is rejected by
+ * decideApproval's expiry guard if expiresAt has already passed. With TTL == window
+ * the approval expires at the exact instant the timeout fires, so auto-confirm
+ * silently fails and AR-7 then denies the execute, meaning the event the user was
+ * promised "in 15 minutes unless you cancel" is NEVER created. A 1h TTL leaves the
+ * approval valid through the confirm, and the every-15m expiry sweep won't expire it
+ * before the confirm fires.
+ */
+const CONFIRM_WINDOW_TTL_MS = 60 * 60 * 1000;
 
 export const handleConnectorCommandFunction = inngest.createFunction(
   {
@@ -500,7 +512,7 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     // ── (d) Create approval + connector_actions row. `now` minted in-step.
     const created = await step.run("create-approval-and-action", async () => {
       const now = new Date();
-      const ttlMs = reversibility === "reversible" ? FIFTEEN_MIN_MS : SEVEN_DAYS_MS;
+      const ttlMs = reversibility === "reversible" ? CONFIRM_WINDOW_TTL_MS : SEVEN_DAYS_MS;
       return createApprovalAndAction({
         command,
         payload: frozenPayload,

@@ -65,7 +65,10 @@ import { buildApprovalLinks } from "@/approvals/links";
 import type { ConnectorCommandDraft, ConnectorActionPayload } from "@/agent/schemas";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+// Mirrors handle-connector-command.ts: the reversible confirmation-window approval
+// TTL is STRICTLY LONGER than the 15m waitForEvent timeout, so the approval is still
+// valid when the timeout auto-confirms it. (TTL == window was the bug E5 caught.)
+const CONFIRM_WINDOW_TTL_MS = 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Captured outbound email — the single thing every safety assertion counts.
@@ -337,7 +340,7 @@ export async function runUpToApproval(
 
   const frozenPayload = built.payload;
   const reversibility = classifyReversibility(frozenPayload);
-  const ttlMs = reversibility === "reversible" ? FIFTEEN_MIN_MS : SEVEN_DAYS_MS;
+  const ttlMs = reversibility === "reversible" ? CONFIRM_WINDOW_TTL_MS : SEVEN_DAYS_MS;
 
   // (d) create approval + connector_actions row. CRITICAL: approval.requested is
   // suppressed (emitEvent: async () => {}) exactly as the wrapper does, so the
