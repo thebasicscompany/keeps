@@ -160,18 +160,15 @@ function resolveAuthConfigId(
   provider: KeepsProvider,
   env: ReturnType<typeof getEnv>,
 ): string {
-  // Env vars COMPOSIO_SLACK_AUTH_CONFIG_ID / COMPOSIO_GCAL_AUTH_CONFIG_ID
-  // are not yet in the schema (they'll be added in C1 when confirmed).
-  // For now we read them raw from process.env and throw a clear error if absent.
-  const key =
+  const value =
     provider === "slack"
-      ? "COMPOSIO_SLACK_AUTH_CONFIG_ID"
-      : "COMPOSIO_GCAL_AUTH_CONFIG_ID";
-
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  void env; // env is passed in but auth config IDs aren't yet in the schema
-  const value = process.env[key];
+      ? env.COMPOSIO_SLACK_AUTH_CONFIG_ID
+      : env.COMPOSIO_GCAL_AUTH_CONFIG_ID;
   if (!value) {
+    const key =
+      provider === "slack"
+        ? "COMPOSIO_SLACK_AUTH_CONFIG_ID"
+        : "COMPOSIO_GCAL_AUTH_CONFIG_ID";
     throw new MissingComposioConfigError(
       `${key} is not set — set it in Vercel env (Composio dashboard → Auth Configs → copy nano-ID)`,
     );
@@ -245,6 +242,13 @@ export interface VerifyComposioWebhookParams {
    * In production the secret is read from COMPOSIO_WEBHOOK_SECRET.
    */
   secret?: string;
+  /**
+   * Clock for timestamp-tolerance enforcement (replay protection). Injectable
+   * for tests, mirroring the repo-wide injected-`now` convention.
+   */
+  now?: Date;
+  /** Max allowed |now - webhook-timestamp| in seconds. Svix default: 300. */
+  toleranceSeconds?: number;
 }
 
 export type WebhookVerificationResult =
@@ -304,11 +308,30 @@ export function verifyComposioWebhookSignature(
     return { valid: false, reason: "Missing webhook-signature header" };
   }
 
+  // Replay protection (svix scheme): reject timestamps outside the tolerance
+  // window BEFORE doing any HMAC work.
+  const timestampSeconds = Number(webhookTimestamp);
+  if (!Number.isFinite(timestampSeconds)) {
+    return { valid: false, reason: "Malformed webhook-timestamp header" };
+  }
+  const nowSeconds = (params.now ?? new Date()).getTime() / 1000;
+  const tolerance = params.toleranceSeconds ?? 300;
+  if (Math.abs(nowSeconds - timestampSeconds) > tolerance) {
+    return { valid: false, reason: "webhook-timestamp outside tolerance window" };
+  }
+
+  // Svix-style secrets ship as "whsec_<base64-key>" — the HMAC key is the
+  // DECODED bytes, not the prefixed string. A raw (unprefixed) secret is used
+  // verbatim. Getting this wrong fails verification on every real webhook.
+  const hmacKey = secret.startsWith("whsec_")
+    ? Buffer.from(secret.slice("whsec_".length), "base64")
+    : Buffer.from(secret, "utf8");
+
   // Signing input: `${msgId}.${timestamp}.${rawBody}`
   const signingInput = `${webhookId}.${webhookTimestamp}.${params.payload}`;
 
   const expectedHmac = crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", hmacKey)
     .update(signingInput, "utf8")
     .digest("base64");
 

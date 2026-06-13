@@ -159,6 +159,77 @@ describe("verifyComposioWebhookSignature", () => {
     expect(result.valid).toBe(true);
   });
 
+  it("accepts a whsec_-prefixed secret by HMAC-ing with the base64-DECODED key", () => {
+    // Svix-style secret: the key is the decoded bytes after the prefix.
+    const keyBytes = Buffer.from("0123456789abcdef0123456789abcdef");
+    const whsecSecret = `whsec_${keyBytes.toString("base64")}`;
+    const signingInput = `${WEBHOOK_ID}.${TIMESTAMP}.${PAYLOAD}`;
+    const signature = `v1,${crypto
+      .createHmac("sha256", keyBytes)
+      .update(signingInput, "utf8")
+      .digest("base64")}`;
+    const result = verifyComposioWebhookSignature({
+      payload: PAYLOAD,
+      headers: {
+        "webhook-id": WEBHOOK_ID,
+        "webhook-timestamp": TIMESTAMP,
+        "webhook-signature": signature,
+      },
+      secret: whsecSecret,
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects a whsec_-prefixed secret when the signature was made with the RAW prefixed string", () => {
+    // Guards the regression the whsec_ handling fixes: HMAC with the prefixed
+    // string itself must NOT verify.
+    const keyBytes = Buffer.from("0123456789abcdef0123456789abcdef");
+    const whsecSecret = `whsec_${keyBytes.toString("base64")}`;
+    const signature = makeSignature(WEBHOOK_ID, TIMESTAMP, PAYLOAD, whsecSecret);
+    const result = verifyComposioWebhookSignature({
+      payload: PAYLOAD,
+      headers: {
+        "webhook-id": WEBHOOK_ID,
+        "webhook-timestamp": TIMESTAMP,
+        "webhook-signature": signature,
+      },
+      secret: whsecSecret,
+    });
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects a timestamp outside the tolerance window (replay protection)", () => {
+    const staleTimestamp = String(Math.floor(Date.now() / 1000) - 10 * 60);
+    const signature = makeSignature(WEBHOOK_ID, staleTimestamp, PAYLOAD);
+    const result = verifyComposioWebhookSignature({
+      payload: PAYLOAD,
+      headers: {
+        "webhook-id": WEBHOOK_ID,
+        "webhook-timestamp": staleTimestamp,
+        "webhook-signature": signature,
+      },
+      secret: TEST_SECRET,
+      now: new Date(),
+    });
+    expect(result.valid).toBe(false);
+    expect((result as { valid: false; reason: string }).reason).toMatch(/tolerance/i);
+  });
+
+  it("rejects a malformed webhook-timestamp header", () => {
+    const signature = makeSignature(WEBHOOK_ID, "not-a-number", PAYLOAD);
+    const result = verifyComposioWebhookSignature({
+      payload: PAYLOAD,
+      headers: {
+        "webhook-id": WEBHOOK_ID,
+        "webhook-timestamp": "not-a-number",
+        "webhook-signature": signature,
+      },
+      secret: TEST_SECRET,
+    });
+    expect(result.valid).toBe(false);
+    expect((result as { valid: false; reason: string }).reason).toMatch(/timestamp/i);
+  });
+
   it("falls back to COMPOSIO_WEBHOOK_SECRET env var when no explicit secret", () => {
     const originalEnv = process.env.COMPOSIO_WEBHOOK_SECRET;
     process.env.COMPOSIO_WEBHOOK_SECRET = TEST_SECRET;

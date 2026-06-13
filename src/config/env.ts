@@ -23,6 +23,10 @@ const envSchema = z.object({
   INNGEST_DEV: z.string().optional(),
   COMPOSIO_API_KEY: z.string().optional(),
   COMPOSIO_WEBHOOK_SECRET: z.string().optional(),
+  // Composio auth config nano-IDs (dashboard -> Auth Configs). Live values are in
+  // RESEARCH-COMPOSIO.md; set per-environment rather than hard-coded.
+  COMPOSIO_SLACK_AUTH_CONFIG_ID: z.string().optional(),
+  COMPOSIO_GCAL_AUTH_CONFIG_ID: z.string().optional(),
 });
 
 export type KeepsEnv = z.infer<typeof envSchema>;
