@@ -25,7 +25,6 @@ import { users, userIdentities } from "@/db/schema";
 import {
   cardClass,
   primaryButtonClass,
-  secondaryButtonClass,
   mutedClass,
   sectionDividerClass,
   inputClass,
@@ -35,6 +34,7 @@ import {
   selectValueToDays,
   daysToSelectValue,
 } from "./retention";
+import { DeleteDataForm } from "./delete-data-form";
 
 // ---------------------------------------------------------------------------
 // Server action — update raw email retention preference
@@ -82,11 +82,16 @@ async function updateRetentionPrefs(formData: FormData): Promise<void> {
 // Resolve current retention preference
 // ---------------------------------------------------------------------------
 
-async function resolveRetentionDays(clerkUserId: string): Promise<number | null> {
+async function resolvePrivacyContext(
+  clerkUserId: string,
+): Promise<{ retentionDays: number | null; email: string | null }> {
   const db = getDb();
 
   const [row] = await db
-    .select({ rawEmailRetentionDays: users.rawEmailRetentionDays })
+    .select({
+      rawEmailRetentionDays: users.rawEmailRetentionDays,
+      email: users.email,
+    })
     .from(users)
     .innerJoin(
       userIdentities,
@@ -99,7 +104,10 @@ async function resolveRetentionDays(clerkUserId: string): Promise<number | null>
     .limit(1);
 
   // Column default is 30; null means "until I delete".
-  return row?.rawEmailRetentionDays ?? 30;
+  return {
+    retentionDays: row?.rawEmailRetentionDays ?? 30,
+    email: row?.email ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +121,8 @@ export default async function PrivacyPage() {
     redirect("/sign-in?redirect_url=/settings/privacy" as Route);
   }
 
-  const retentionDays = await resolveRetentionDays(clerkUserId);
+  const { retentionDays, email: accountEmail } =
+    await resolvePrivacyContext(clerkUserId);
   const currentSelectValue = daysToSelectValue(retentionDays);
 
   return (
@@ -209,33 +218,21 @@ export default async function PrivacyPage() {
       <div className={`my-8 ${sectionDividerClass}`} />
 
       {/* ------------------------------------------------------------------ */}
-      {/* Section 2: Delete all data (STUB — Wave B)                         */}
+      {/* Section 2: Delete all data (live — deliverable 7)                  */}
       {/* ------------------------------------------------------------------ */}
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-semibold text-[#14140F]">Delete all data</h3>
-          <p className={`mt-1 text-sm ${mutedClass}`}>
-            Permanently delete your account and all associated data — loops,
-            raw emails, connector accounts, and digest history. You will be
-            asked to confirm by typing your email address before anything is
-            removed. This action cannot be undone.
+      {accountEmail ? (
+        <DeleteDataForm accountEmail={accountEmail} />
+      ) : (
+        <div className="space-y-2">
+          <h3 className="text-base font-semibold text-[#14140F]">
+            Delete all data
+          </h3>
+          <p className={`text-sm ${mutedClass}`}>
+            We could not resolve your account email. Please refresh and try
+            again.
           </p>
         </div>
-
-        {/* Disabled stub — real handler lands in Wave B */}
-        <button
-          type="button"
-          disabled
-          className={`${secondaryButtonClass} w-full opacity-40 cursor-not-allowed`}
-          aria-disabled="true"
-        >
-          Delete all data — available in a future release
-        </button>
-        <p className={`text-xs ${mutedClass}`}>
-          Full account deletion is not yet available in this release. It will
-          require email confirmation before any data is removed.
-        </p>
-      </div>
+      )}
     </div>
   );
 }

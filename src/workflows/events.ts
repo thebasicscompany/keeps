@@ -198,6 +198,34 @@ export type EventMap = {
     kind: "slack_dm" | "calendar_event";
     error: { code: string; message: string; retryable: boolean };
   };
+
+  // -------------------------------------------------------------------------
+  // Phase 6 trust events — account-wide deletion (deliverable 7)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted by POST /api/data/delete after the data_deletion_requests row is
+   * created. Consumed by the `process-data-deletion` Inngest function, which
+   * deletes the Clerk user and cascades the account graph. `userId`/`email`
+   * are captured at request time so the workflow can purge by both even after
+   * the users row is gone.
+   */
+  "data.delete_requested": {
+    dataDeletionRequestId: string;
+    userId: string;
+    email: string;
+  };
+
+  /**
+   * Emitted by `process-data-deletion` ONLY on the run that transitions the
+   * request to `completed`. A replay that hits the already-`completed` guard
+   * does NOT re-emit, so downstream consumers see exactly one completion.
+   */
+  "data.delete_completed": {
+    dataDeletionRequestId: string;
+    userId: string;
+    email: string;
+  };
 };
 
 // ---------------------------------------------------------------------------
