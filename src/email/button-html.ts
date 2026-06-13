@@ -29,9 +29,15 @@ export function escapeHtml(value: string): string {
 export type ButtonEmailHtmlInput = {
   /** One or more body paragraphs rendered above the button. */
   paragraphs: string[];
-  /** The single primary call-to-action button. */
+  /** The primary call-to-action button (square seafoam). */
   button: { label: string; url: string };
-  /** Optional secondary actions rendered as small plain-text links below the button. */
+  /**
+   * Optional secondary call-to-action button, rendered inline beside the primary
+   * as a square OUTLINE button (paper fill, ink text, hairline border) — for a
+   * second decisive action like Deny/Cancel that warrants a button, not a link.
+   */
+  secondaryButton?: { label: string; url: string };
+  /** Optional tertiary actions rendered as small plain-text links below the buttons. */
   textLinks?: { label: string; url: string }[];
   /** Optional muted footnote rendered at the very bottom. */
   footnote?: string;
@@ -42,7 +48,7 @@ export type ButtonEmailHtmlInput = {
  * settled design policy. Every interpolated value is HTML-escaped.
  */
 export function renderButtonEmailHtml(input: ButtonEmailHtmlInput): string {
-  const { paragraphs, button, textLinks = [], footnote } = input;
+  const { paragraphs, button, secondaryButton, textLinks = [], footnote } = input;
 
   const paragraphRows = paragraphs
     .map(
@@ -53,9 +59,15 @@ export function renderButtonEmailHtml(input: ButtonEmailHtmlInput): string {
 
   const safeButtonLabel = escapeHtml(button.label);
   const safeButtonHref = escapeHtml(button.url);
+  const primaryAnchor = `<a href="${safeButtonHref}" style="display:inline-block;background-color:#C1F5DF;color:#14140F;border:1px solid rgba(30,107,79,0.4);padding:14px 26px;font-size:16px;font-weight:700;text-decoration:none;border-radius:0;font-family:${FONT_STACK};">${safeButtonLabel}</a>`;
+  // Secondary = square OUTLINE button (paper fill, ink text, hairline border), inline beside the primary.
+  const secondaryAnchor = secondaryButton
+    ? `<a href="${escapeHtml(secondaryButton.url)}" style="display:inline-block;margin-left:10px;background-color:#FAFAF8;color:#14140F;border:1px solid rgba(20,20,15,0.28);padding:14px 26px;font-size:16px;font-weight:700;text-decoration:none;border-radius:0;font-family:${FONT_STACK};">${escapeHtml(secondaryButton.label)}</a>`
+    : "";
   const buttonRow = [
     `<tr><td style="padding:0 0 4px;">`,
-    `<a href="${safeButtonHref}" style="display:inline-block;background-color:#C1F5DF;color:#14140F;border:1px solid rgba(30,107,79,0.4);padding:14px 26px;font-size:16px;font-weight:700;text-decoration:none;border-radius:0;font-family:${FONT_STACK};">${safeButtonLabel}</a>`,
+    primaryAnchor,
+    secondaryAnchor,
     `</td></tr>`,
   ].join("");
 

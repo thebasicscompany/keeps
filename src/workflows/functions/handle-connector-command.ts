@@ -557,7 +557,7 @@ export const handleConnectorCommandFunction = inngest.createFunction(
               durationMinutes: frozenPayload.durationMinutes,
             };
 
-      const { subject, textBody } = buildConnectorApprovalEmail({
+      const { subject, textBody, html } = buildConnectorApprovalEmail({
         approvalId: created.approvalId,
         token: created.token,
         appUrl: env.NEXT_PUBLIC_APP_URL,
@@ -567,7 +567,7 @@ export const handleConnectorCommandFunction = inngest.createFunction(
       // Reply-To plus-routes a plaintext "approve"/"cancel"/"edit" back to the
       // approval reply handler (the nudge mailbox-hash pattern from handle-approval).
       const replyTo = buildNudgeReplyTo(created.approvalId, env.POSTMARK_REPLY_TO_BASE);
-      await sendApprovalReply(ownerEmail, subject, textBody, replyTo, getEmailSender());
+      await sendApprovalReply(ownerEmail, subject, textBody, replyTo, getEmailSender(), html);
     });
 
     const timeout = reversibility === "reversible" ? CONFIRM_WINDOW_TIMEOUT : HARD_APPROVAL_TIMEOUT;
@@ -732,6 +732,7 @@ async function sendApprovalReply(
   textBody: string,
   replyTo: string,
   sender: EmailSender,
+  htmlBody?: string,
 ): Promise<void> {
   await sender.send({
     userId: null,
@@ -741,5 +742,6 @@ async function sendApprovalReply(
     textBody,
     replyTo,
     headers: {},
+    ...(htmlBody !== undefined ? { htmlBody } : {}),
   });
 }

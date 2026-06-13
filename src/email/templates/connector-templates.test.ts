@@ -179,6 +179,27 @@ describe("buildConnectorApprovalEmail (slack_dm)", () => {
     expect(subject).toBe("Approval needed: Slack message to Maya");
   });
 
+  it("renders an HTML part with Approve (primary) and Deny (secondary) BUTTONS, token only in hrefs", () => {
+    const { html } = buildConnectorApprovalEmail({
+      approvalId: APPROVAL_ID,
+      token: TOKEN,
+      appUrl: APP_URL,
+      action: slackAction,
+    });
+    // Both buttons present, each an anchor styled as a square button.
+    expect(html).toContain("Approve &amp; send");
+    expect(html).toContain("Deny");
+    // Hrefs are HTML-escaped in the attribute (& → &amp;) — correct for HTML.
+    expect(html).toContain(`href="${approveUrl.replace(/&/g, "&amp;")}"`);
+    expect(html).toContain(`href="${cancelUrl.replace(/&/g, "&amp;")}"`);
+    // Primary = seafoam fill; secondary = paper outline.
+    expect(html).toContain("background-color:#C1F5DF");
+    expect(html).toContain("background-color:#FAFAF8");
+    // Rule 7: the plaintext token appears ONLY inside the button hrefs, nowhere else.
+    const withoutHrefs = html.replace(new RegExp(`href="[^"]*"`, "g"), 'href="#"');
+    expect(withoutHrefs).not.toContain(TOKEN);
+  });
+
   it("embeds approveUrl and cancelUrl exactly as buildApprovalLinks produces", () => {
     const { textBody } = buildConnectorApprovalEmail({
       approvalId: APPROVAL_ID,

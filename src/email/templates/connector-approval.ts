@@ -14,6 +14,7 @@
  */
 
 import { buildApprovalLinks } from "@/approvals/links";
+import { renderButtonEmailHtml } from "@/email/button-html";
 
 export type ConnectorApprovalAction =
   | {
@@ -40,7 +41,7 @@ function buildSlackDmApprovalEmail(
   approveUrl: string,
   cancelUrl: string,
   action: Extract<ConnectorApprovalAction, { kind: "slack_dm" }>,
-): { subject: string; textBody: string } {
+): { subject: string; textBody: string; html: string } {
   const recipientLine = action.recipientSlackHandleOrEmail
     ? `To: ${action.recipientName} (${action.recipientSlackHandleOrEmail})`
     : `To: ${action.recipientName}`;
@@ -69,13 +70,26 @@ function buildSlackDmApprovalEmail(
     "  reply  edit: <changes>    — tell me what to change",
   ].join("\n");
 
-  return { subject, textBody };
+  // HTML: Approve (primary) + Deny (secondary outline) buttons. Token lives ONLY
+  // inside the button hrefs (rule 7) — never echoed as text.
+  const html = renderButtonEmailHtml({
+    paragraphs: [
+      "Keeps will send this Slack message on your behalf:",
+      recipientLine,
+      `“${action.message}”`,
+    ],
+    button: { label: "Approve & send", url: approveUrl },
+    secondaryButton: { label: "Deny", url: cancelUrl },
+    footnote: "Or reply to this email: approve · reject · edit: <changes>",
+  });
+
+  return { subject, textBody, html };
 }
 
 function buildCalendarEventApprovalEmail(
   cancelUrl: string,
   action: Extract<ConnectorApprovalAction, { kind: "calendar_event" }>,
-): { subject: string; textBody: string } {
+): { subject: string; textBody: string; html: string } {
   const durationLine =
     action.durationMinutes !== null
       ? `Duration: ${action.durationMinutes} minutes`
@@ -103,12 +117,25 @@ function buildCalendarEventApprovalEmail(
     "  reply  edit: <changes>    — tell me what to change",
   );
 
-  return { subject, textBody: lines.join("\n") };
+  // Confirmation window: the only decisive action is Cancel (doing nothing adds it),
+  // so a single Cancel button — no Approve/Deny pair here.
+  const html = renderButtonEmailHtml({
+    paragraphs: [
+      "I'll add this to your calendar in 15 minutes unless you cancel.",
+      `Event: ${action.title}`,
+      durationLine ? `${action.whenLocal} · ${durationLine}` : action.whenLocal,
+    ],
+    button: { label: "Cancel", url: cancelUrl },
+    footnote: "Or reply to this email: cancel · edit: <changes>",
+  });
+
+  return { subject, textBody: lines.join("\n"), html };
 }
 
 export function buildConnectorApprovalEmail(input: ConnectorApprovalEmailInput): {
   subject: string;
   textBody: string;
+  html: string;
 } {
   const { approveUrl, cancelUrl } = buildApprovalLinks({
     approvalId: input.approvalId,
