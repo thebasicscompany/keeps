@@ -9,9 +9,12 @@
  * The server-rendered default is "UTC" (from the users row); on mount the
  * browser replaces it with the detected timezone. The user can also choose
  * from the full IANA list via the <select>.
+ *
+ * Uses StyledSelect for a consistent appearance with the send-hour select.
  */
 
 import { useEffect, useRef, useState } from "react";
+import { StyledSelect } from "./components/styled-select";
 
 type Props = {
   /** Server-side default (from users.timezone). */
@@ -44,18 +47,12 @@ export function TimezoneInput({ defaultTimezone }: Props) {
       : ["UTC"];
 
   return (
-    <select
+    <StyledSelect
       id="timezone"
       name="timezone"
       value={timezone}
       onChange={(e) => setTimezone(e.target.value)}
-      className="h-12 w-full rounded-none border border-[#E2E2DD] bg-white px-4 text-[15px] font-medium text-[#14140F] outline-none transition-shadow placeholder:text-[#6F6F66] focus:border-[#14140F] focus:shadow-[0_0_0_1px_#14140F]"
-    >
-      {timezones.map((tz) => (
-        <option key={tz} value={tz}>
-          {tz}
-        </option>
-      ))}
-    </select>
+      options={timezones.map((tz) => ({ value: tz, label: tz }))}
+    />
   );
 }

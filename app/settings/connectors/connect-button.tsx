@@ -26,18 +26,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ConnectFlowResult } from "@/connectors/connect-flow";
 import type { DisconnectFlowResult } from "./actions";
-
-// ---------------------------------------------------------------------------
-// Design tokens — inline to keep the "use client" boundary self-contained.
-// Primary and secondary mirror get-started-stepper.tsx primaryButtonClass but
-// at h-11 (settings card scale) instead of h-16 (full-bleed stepper scale).
-// ---------------------------------------------------------------------------
-
-const primaryBtnClass =
-  "h-11 rounded-none border border-[rgba(30,107,79,0.32)] bg-[#C1F5DF] px-5 text-sm font-semibold text-[#14140F] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),inset_0_-2px_0_rgba(30,107,79,0.28),0_12px_24px_rgba(30,107,79,0.16)] transition-colors hover:bg-[#AFF0D3] focus-visible:ring-2 focus-visible:ring-[rgba(30,107,79,0.32)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
-
-const secondaryBtnClass =
-  "h-11 rounded-none border border-[#E2E2DD] bg-white px-5 text-sm font-semibold text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+import { compactPrimaryButtonClass, secondaryButtonClass } from "../_ui";
+import { ErrorMessage } from "../components/error-message";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -74,7 +64,8 @@ export function ConnectButton({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const btnClass = variant === "primary" ? primaryBtnClass : secondaryBtnClass;
+  const btnClass =
+    variant === "primary" ? compactPrimaryButtonClass : secondaryButtonClass;
 
   async function handleConnect() {
     if (!connectAction) return;
@@ -139,9 +130,7 @@ export function ConnectButton({
         {busy ? `${label}…` : label}
       </button>
 
-      {error ? (
-        <p className="text-xs font-medium text-[#B42318]">{error}</p>
-      ) : null}
+      <ErrorMessage message={error} />
     </div>
   );
 }

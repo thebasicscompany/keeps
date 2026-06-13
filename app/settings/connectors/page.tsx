@@ -7,10 +7,7 @@
  * yields the Clerk user ID, which we join against user_identities to get the
  * INTERNAL Keeps user UUID (users.id). That UUID is used to query connector_accounts.
  *
- * Design language: square seafoam — matches app/settings/page.tsx and
- * app/get-started-stepper.tsx. Tokens duplicated here to keep the settings
- * section self-contained (no cross-app import of tokens that live in a
- * "use client" component).
+ * Outer shell (background, container, header) is provided by layout.tsx.
  */
 
 import { auth } from "@clerk/nextjs/server";
@@ -23,16 +20,12 @@ import type { ConnectorAccount } from "@/db/schema";
 import { startConnectorConnect, startConnectorReconnect, startConnectorDisconnect } from "./actions";
 import { ConnectButton } from "./connect-button";
 import { reconcileConnectorAccounts } from "@/connectors/reconcile";
-
-// ---------------------------------------------------------------------------
-// Design tokens — copied from app/settings/page.tsx / get-started-stepper.tsx
-// ---------------------------------------------------------------------------
-
-const creamBg = "bg-[#FAFAF8]";
-const cardBg =
-  "bg-white border border-[#E2E2DD] shadow-[0_24px_70px_rgba(20,20,15,0.07)]";
-const labelMuted = "text-[#6F6F66]";
-const sectionDivider = "border-t border-[#E2E2DD]";
+import {
+  cardClass,
+  mutedClass,
+  sectionDividerClass,
+  statusBadgeVariants,
+} from "../_ui";
 
 // ---------------------------------------------------------------------------
 // View-model — pure function, no I/O; exported for unit tests (D3 / D4)
@@ -210,70 +203,56 @@ export default async function ConnectorsPage() {
   const calendarVm = connectorCardViewModel("google_calendar", accounts.google_calendar);
 
   return (
-    <main className={`relative z-10 min-h-svh ${creamBg} text-[#14140F]`}>
-      <section className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col justify-center px-5 py-9 sm:px-0">
-        <div className={`rounded-none ${cardBg} p-5 sm:p-6`}>
-          {/* Header */}
-          <div className="mb-8">
-            <div
-              className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]"
-              aria-hidden="true"
-            >
-              {/* Plug / connector icon */}
-              <svg
-                className="size-7"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.4}
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
-                />
-              </svg>
-            </div>
-            <h1 className="text-[28px] leading-tight font-bold tracking-normal text-[#14140F]">
-              Connectors
-            </h1>
-            <p className={`mt-1 text-[17px] leading-tight font-medium ${labelMuted}`}>
-              Connect Keeps to Slack and Google Calendar.
-            </p>
-          </div>
-
-          {/* Connector cards */}
-          <div className="space-y-5">
-            <ConnectorCard
-              vm={slackVm}
-              connectAction={startConnectorConnect.bind(null, "slack")}
-              reconnectAction={startConnectorReconnect.bind(null, "slack")}
-              disconnectAction={startConnectorDisconnect.bind(null, "slack")}
+    <div className={cardClass}>
+      {/* Card header */}
+      <div className="mb-8">
+        <div
+          className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]"
+          aria-hidden="true"
+        >
+          {/* Plug / connector icon */}
+          <svg
+            className="size-7"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.4}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
             />
-
-            <div className={sectionDivider} />
-
-            <ConnectorCard
-              vm={calendarVm}
-              connectAction={startConnectorConnect.bind(null, "google_calendar")}
-              reconnectAction={startConnectorReconnect.bind(null, "google_calendar")}
-              disconnectAction={startConnectorDisconnect.bind(null, "google_calendar")}
-            />
-          </div>
-
-          {/* Footer link back to settings */}
-          <div className={`mt-8 pt-5 ${sectionDivider}`}>
-            <a
-              href="/settings"
-              className={`text-sm font-medium ${labelMuted} hover:text-[#14140F] transition-colors`}
-            >
-              Back to settings
-            </a>
-          </div>
+          </svg>
         </div>
-      </section>
-    </main>
+        <h2 className="text-[28px] leading-tight font-bold tracking-normal text-[#14140F]">
+          Connectors
+        </h2>
+        <p className={`mt-1 text-[17px] leading-tight font-medium ${mutedClass}`}>
+          Connect Keeps to Slack and Google Calendar.
+        </p>
+      </div>
+
+      {/* Connector cards */}
+      <div className="space-y-5">
+        <ConnectorCard
+          vm={slackVm}
+          connectAction={startConnectorConnect.bind(null, "slack")}
+          reconnectAction={startConnectorReconnect.bind(null, "slack")}
+          disconnectAction={startConnectorDisconnect.bind(null, "slack")}
+        />
+
+        <div className={sectionDividerClass} />
+
+        <ConnectorCard
+          vm={calendarVm}
+          connectAction={startConnectorConnect.bind(null, "google_calendar")}
+          reconnectAction={startConnectorReconnect.bind(null, "google_calendar")}
+          disconnectAction={startConnectorDisconnect.bind(null, "google_calendar")}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -298,7 +277,7 @@ function ConnectorCard({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-base font-semibold text-[#14140F]">{vm.label}</p>
-          <p className={`mt-0.5 text-sm ${labelMuted}`}>{vm.description}</p>
+          <p className={`mt-0.5 text-sm ${mutedClass}`}>{vm.description}</p>
         </div>
         <StatusBadge variant={vm.statusVariant} text={vm.statusText} />
       </div>
@@ -356,15 +335,9 @@ function StatusBadge({
   variant: "none" | "active" | "error";
   text: string;
 }) {
-  const styles: Record<typeof variant, string> = {
-    none: "bg-[#F4F4F0] text-[#6F6F66]",
-    active: "bg-[#E9FBF4] text-[#1E6B4F]",
-    error: "bg-[#FEF3F2] text-[#B42318]",
-  };
-
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-none px-2.5 py-1 text-xs font-semibold ${styles[variant]}`}
+      className={`inline-flex shrink-0 items-center rounded-none px-2.5 py-1 text-xs font-semibold ${statusBadgeVariants[variant]}`}
     >
       {text}
     </span>
