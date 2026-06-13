@@ -29,6 +29,7 @@ import { MAX_NUDGES_PER_USER_PER_DAY } from "@/nudges/policy";
 import type { EventMap } from "@/workflows/events";
 import { inngest } from "@/workflows/client";
 import type { EmailSender } from "@/email/outbound";
+import { withInngestSentry } from "@/observability/inngest-sentry";
 
 // ---------------------------------------------------------------------------
 // AR-3 metadata shape — must match asPrivateReplyMetadata in resolve-reply-target.ts
@@ -275,7 +276,9 @@ export const sendNudgeFunction = inngest.createFunction(
     // No custom idempotency key — rely on in-function re-validation so future
     // legitimate nudges for the same loop are not suppressed by Inngest dedup.
   },
-  async ({ event, step, runId }) => {
+  async ({ event, step, runId }) => withInngestSentry(
+    { functionId: "send-nudge", eventId: event.id },
+    async () => {
     const loopId = (event.data as EventMap["loop.nudge_due"]).loopId;
 
     // Step 1: check — re-validate eligibility + daily cap with a fresh `now`.
@@ -421,5 +424,5 @@ export const sendNudgeFunction = inngest.createFunction(
       nudgeId: nudgeRowResult.nudgeId,
       providerMessageId: sendResult.providerMessageId,
     };
-  },
+  }),
 );

@@ -3,6 +3,19 @@ import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import { upsertClerkUserAndClaimInbound } from "@/auth/clerk-users";
 
+// Sentry scope tagging — guard so it is harmless without a DSN.
+function tagSentryWebhookScope(eventType: string): void {
+  if (!process.env.SENTRY_DSN) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Sentry = require("@sentry/nextjs") as typeof import("@sentry/nextjs");
+    Sentry.getCurrentScope().setTag("webhook.provider", "clerk");
+    Sentry.getCurrentScope().setTag("webhook.type", eventType);
+  } catch {
+    // Never let observability tagging break the request path.
+  }
+}
+
 // The Clerk JSON resource types (UserJSON / EmailAddressJSON) aren't re-exported from the
 // webhooks entrypoint, so derive the `user.*` payload + its email shape off the verified
 // `WebhookEvent` union instead of importing them.
@@ -34,6 +47,8 @@ export async function POST(request: Request) {
     // loop the way it would a 5xx, which is what we want for a genuinely bad signature.
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
+
+  tagSentryWebhookScope(event.type);
 
   switch (event.type) {
     case "user.created": {

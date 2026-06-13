@@ -37,6 +37,7 @@ import { getDb } from "@/db/client";
 import { auditLog, users } from "@/db/schema";
 import { inngest } from "@/workflows/client";
 import { sendEvent, type EventMap } from "@/workflows/events";
+import { withInngestSentry } from "@/observability/inngest-sentry";
 import type { ConnectorCommandDraft, ConnectorActionPayload } from "@/agent/schemas";
 import {
   DrizzleConnectorAccountsRepository,
@@ -384,7 +385,9 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     // V0: one connector command per inbound email.
     idempotency: "event.data.inboundEmailId",
   },
-  async ({ event, step }) => {
+  async ({ event, step }) => withInngestSentry(
+    { functionId: "handle-connector-command", eventId: event.id },
+    async () => {
     const userId = event.data.userId as string;
     const inboundEmailId = event.data.inboundEmailId as string;
     const provider = event.data.provider as "slack" | "google_calendar";
@@ -700,7 +703,7 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     });
 
     return { ok: true, branch: decision };
-  },
+  }),
 );
 
 // ---------------------------------------------------------------------------

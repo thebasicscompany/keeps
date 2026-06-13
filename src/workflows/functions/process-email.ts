@@ -12,6 +12,7 @@ import type { ApprovalReplyAudit } from "@/workflows/functions/handlers/handle-a
 import { routeEmail } from "@/workflows/functions/route-email";
 import { parseConnectorCommand } from "@/agent/parse-connector-command";
 import { inngest } from "@/workflows/client";
+import { withInngestSentry } from "@/observability/inngest-sentry";
 
 /**
  * Question-branch ports (Deliverable #9): a digest user loader + the digest loop query +
@@ -79,7 +80,9 @@ const approvalAudit: ApprovalReplyAudit = async (entry) => {
 
 export const processEmail = inngest.createFunction(
   { id: "process-email", triggers: { event: "email.received" }, idempotency: "event.data.inboundEmailId" },
-  async ({ event, step }) => {
+  async ({ event, step }) => withInngestSentry(
+    { functionId: "process-email", eventId: event.id },
+    async () => {
     const payload = await step.run("validate-email-received-payload", async () => {
       const inboundEmailId = event.data.inboundEmailId as string | undefined;
 
@@ -145,7 +148,7 @@ export const processEmail = inngest.createFunction(
       payload,
       result,
     };
-  },
+  }),
 );
 
 export const workflowFunctions = [processEmail];

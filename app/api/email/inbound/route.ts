@@ -6,6 +6,19 @@ import { handlePostmarkInboundEmail } from "@/email/inbound";
 import type { InboundCaptureResult } from "@/email/inbound";
 import { sendWorkflowEvent } from "@/workflows/events";
 
+// Sentry scope tagging — guard so it is harmless without a DSN.
+function tagSentryWebhookScope(provider: string): void {
+  if (!process.env.SENTRY_DSN) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Sentry = require("@sentry/nextjs") as typeof import("@sentry/nextjs");
+    Sentry.getCurrentScope().setTag("webhook.provider", provider);
+    Sentry.getCurrentScope().setTag("webhook.type", "inbound_email");
+  } catch {
+    // Never let observability tagging break the request path.
+  }
+}
+
 const MAX_INBOUND_BODY_BYTES = 10 * 1024 * 1024;
 
 // Postmark inbound cannot send custom headers from every plan/UI, but it does support
@@ -25,6 +38,7 @@ function basicAuthPassword(request: Request): string | null {
 }
 
 export async function POST(request: Request) {
+  tagSentryWebhookScope("postmark");
   const env = getOptionalEnv();
   const isProd = process.env.NODE_ENV === "production";
 
