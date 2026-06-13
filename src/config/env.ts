@@ -21,6 +21,8 @@ const envSchema = z.object({
   INNGEST_EVENT_KEY: z.string().optional(),
   INNGEST_SIGNING_KEY: z.string().optional(),
   INNGEST_DEV: z.string().optional(),
+  COMPOSIO_API_KEY: z.string().optional(),
+  COMPOSIO_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type KeepsEnv = z.infer<typeof envSchema>;
