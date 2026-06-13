@@ -44,9 +44,9 @@ const SECRET = "whsec_dGVzdHNlY3JldA=="; // "testsecret" base64
 
 function signed(body: string, secret = SECRET, ts = String(Math.floor(NOW.getTime() / 1000))) {
   const id = "msg_1";
-  const key = Buffer.from(secret.slice("whsec_".length), "base64");
+  // Composio HMACs the secret string verbatim (no whsec_ strip / base64 decode).
   const sig = crypto
-    .createHmac("sha256", key)
+    .createHmac("sha256", secret)
     .update(`${id}.${ts}.${body}`)
     .digest("base64");
   return {

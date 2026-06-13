@@ -89,9 +89,14 @@ export function parseComposioWebhook(payload: unknown): ParsedWebhookEvent | nul
   if (!payload || typeof payload !== "object") return null;
   const root = payload as Record<string, unknown>;
 
+  // Accept any `composio.*` lifecycle event. The exact namespace is not fully
+  // doc-pinned: connection loss may arrive as `composio.connected_account.expired`
+  // OR `composio.trigger.disabled` (with data.disabled_reason). We gate broadly and
+  // classify on the trailing action verb + status/disabled_reason below. (Fails safe:
+  // anything we can't extract returns null → log + 200; the sweep reconciles.)
   const type = asString(root.type);
-  if (!type || !type.startsWith("composio.connected_account.")) return null;
-  const action = type.slice("composio.connected_account.".length);
+  if (!type || !type.startsWith("composio.")) return null;
+  const action = type.split(".").pop() ?? "";
 
   const data = (root.data ?? {}) as Record<string, unknown>;
   const metadata = (root.metadata ?? {}) as Record<string, unknown>;
@@ -129,11 +134,25 @@ export function parseComposioWebhook(payload: unknown): ParsedWebhookEvent | nul
     metadata.toolkit_slug,
     typeof data.toolkit === "string" ? data.toolkit : undefined,
   );
-  const provider = providerFromToolkitSlug(toolkitSlug ?? undefined);
+  let provider = providerFromToolkitSlug(toolkitSlug ?? undefined);
+  if (!provider) {
+    // Fallback: the V3 trigger envelope encodes the toolkit in the trigger_name
+    // prefix, e.g. "GOOGLECALENDAR_..." / "SLACK_..." — derive provider from it.
+    const triggerName = firstString(data.trigger_name, data.triggerName);
+    const prefix = triggerName ? triggerName.split("_")[0]?.toLowerCase() : undefined;
+    provider = providerFromToolkitSlug(prefix);
+  }
   if (!provider) return null;
 
   const composioStatus = firstString(data.status, data.connectionStatus, data.connection_status);
-  const statusReason = firstString(data.statusReason, data.status_reason, data.reason);
+  // disabled_reason carries the human cause on `composio.trigger.disabled` events.
+  const statusReason = firstString(
+    data.statusReason,
+    data.status_reason,
+    data.reason,
+    data.disabled_reason,
+    data.disabledReason,
+  );
 
   return {
     type,
@@ -182,8 +201,18 @@ export function classifyLifecycle(event: ParsedWebhookEvent): LifecycleOutcome {
     case "inactive":
       return { kind: "revoked", status: "auth_error" };
     case "deleted":
-    case "disabled":
       return { kind: "revoked", status: "disabled" };
+    case "disabled": {
+      // `composio.trigger.disabled` is overloaded: a connection that EXPIRED or was
+      // REVOKED upstream surfaces here with a disabled_reason. Distinguish so the
+      // user gets a reconnect (auth_error) rather than a silent user-disable.
+      const reason = (event.statusReason ?? "").toLowerCase();
+      if (/expir|connection_lost|connection_expired|disconnect/.test(reason)) {
+        return { kind: "revoked", status: "auth_error" };
+      }
+      if (/revok/.test(reason)) return { kind: "revoked", status: "revoked" };
+      return { kind: "revoked", status: "disabled" };
+    }
     default:
       // Unknown verb without a status → don't guess; ignore (still 200).
       return { kind: "ignore" };

@@ -323,19 +323,20 @@ export type WebhookVerificationResult =
 /**
  * Verifies a Composio webhook signature without making any network calls.
  *
- * Composio signs every webhook with HMAC-SHA256 in the svix-style format:
+ * Composio signs every webhook with HMAC-SHA256 (svix-style HEADER NAMES, but the
+ * secret is used as a raw UTF-8 key — NOT svix's whsec_/base64 scheme):
  *   - signing input: `${webhook-id}.${webhook-timestamp}.${raw-body}`
  *   - header `webhook-signature`: `v1,<base64(HMAC-SHA256(secret, input))>`
  *   - header `webhook-id`: unique message ID
- *   - header `webhook-timestamp`: Unix timestamp in seconds (string)
+ *   - header `webhook-timestamp`: timestamp string (format not doc-pinned)
+ *   - the HMAC key is the secret string verbatim (no prefix strip, no base64)
  *
  * Uses timingSafeEqual to prevent timing attacks.
  *
  * Verified against:
- *   - https://docs.composio.dev/docs/webhook-verification
- *   - @composio/core 0.10.0 internal verifyWebhookSignature comment:
- *     "The signing input is: `${msgId}.${timestamp}.${payload}`"
- *   - node_modules/@composio/core/dist/composio-DRl6WCI9.d.mts line 3595-3598
+ *   - https://docs.composio.dev/docs/webhook-verification (sample: createHmac('sha256', secret))
+ *   - @composio/core 0.10.0 hmacSha256Base64 → `encoder.encode(secret)` (raw key)
+ *   - signing input comment: "The signing input is: `${msgId}.${timestamp}.${payload}`"
  *
  * @returns { valid: true } on success, { valid: false, reason } on failure.
  *
@@ -373,30 +374,29 @@ export function verifyComposioWebhookSignature(
     return { valid: false, reason: "Missing webhook-signature header" };
   }
 
-  // Replay protection (svix scheme): reject timestamps outside the tolerance
-  // window BEFORE doing any HMAC work.
+  // Replay protection: reject timestamps outside the tolerance window. BEST-EFFORT
+  // by design — Composio's webhook-timestamp format is not doc-pinned, so a
+  // non-numeric/unexpected value SKIPS the tolerance check rather than rejecting
+  // (the HMAC below signs the timestamp string verbatim, so tampering is still
+  // caught). We only reject when the timestamp clearly parses as a stale unix time.
   const timestampSeconds = Number(webhookTimestamp);
-  if (!Number.isFinite(timestampSeconds)) {
-    return { valid: false, reason: "Malformed webhook-timestamp header" };
-  }
-  const nowSeconds = (params.now ?? new Date()).getTime() / 1000;
-  const tolerance = params.toleranceSeconds ?? 300;
-  if (Math.abs(nowSeconds - timestampSeconds) > tolerance) {
-    return { valid: false, reason: "webhook-timestamp outside tolerance window" };
+  if (Number.isFinite(timestampSeconds)) {
+    const nowSeconds = (params.now ?? new Date()).getTime() / 1000;
+    const tolerance = params.toleranceSeconds ?? 300;
+    if (Math.abs(nowSeconds - timestampSeconds) > tolerance) {
+      return { valid: false, reason: "webhook-timestamp outside tolerance window" };
+    }
   }
 
-  // Svix-style secrets ship as "whsec_<base64-key>" — the HMAC key is the
-  // DECODED bytes, not the prefixed string. A raw (unprefixed) secret is used
-  // verbatim. Getting this wrong fails verification on every real webhook.
-  const hmacKey = secret.startsWith("whsec_")
-    ? Buffer.from(secret.slice("whsec_".length), "base64")
-    : Buffer.from(secret, "utf8");
-
+  // Composio HMACs the webhook secret as a RAW UTF-8 string — verified against
+  // @composio/core's hmacSha256Base64 (`encoder.encode(secret)`) and the docs
+  // sample (`createHmac('sha256', secret)`). It is NOT Svix: there is no `whsec_`
+  // prefix stripping and no base64 key decode. The full secret string is the key.
   // Signing input: `${msgId}.${timestamp}.${rawBody}`
   const signingInput = `${webhookId}.${webhookTimestamp}.${params.payload}`;
 
   const expectedHmac = crypto
-    .createHmac("sha256", hmacKey)
+    .createHmac("sha256", secret)
     .update(signingInput, "utf8")
     .digest("base64");
 
