@@ -21,6 +21,7 @@ import { redirect } from "next/navigation";
 import type { Route } from "next";
 import { loadApprovalForWeb } from "@/approvals/decide-web";
 import { DrizzleApprovalRepository } from "@/approvals/repository";
+import { describeApprovalAction } from "@/approvals/describe-action";
 
 // ---------------------------------------------------------------------------
 // Design tokens — match get-started-stepper.tsx exactly
@@ -41,24 +42,17 @@ const secondaryBtn =
 // ---------------------------------------------------------------------------
 
 function PayloadSummary({ actionKind, payload }: { actionKind: string; payload: Record<string, unknown> }) {
-  const entries = Object.entries(payload).filter(([key]) =>
-    // Strip internal / sensitive keys.
-    !["token", "tokenHash", "id", "userId", "draftId"].includes(key),
-  );
+  const { title, rows } = describeApprovalAction(actionKind, payload);
 
   return (
     <div className={`rounded-none border border-[#E2E2DD] ${creamBg} px-5 py-4`}>
-      <p className="mb-3 text-sm font-semibold text-[#14140F]">
-        Action: <span className="font-mono text-[#1E6B4F]">{actionKind}</span>
-      </p>
-      {entries.length > 0 ? (
+      <p className="mb-3 text-sm font-semibold text-[#14140F]">{title}</p>
+      {rows.length > 0 ? (
         <dl className="space-y-1">
-          {entries.map(([key, value]) => (
-            <div key={key} className="flex gap-2 text-sm">
-              <dt className={`min-w-[100px] font-medium ${labelMuted}`}>{key}</dt>
-              <dd className="font-medium text-[#14140F] break-all">
-                {typeof value === "object" ? JSON.stringify(value) : String(value)}
-              </dd>
+          {rows.map(({ label, value }) => (
+            <div key={label} className="flex gap-2 text-sm">
+              <dt className={`min-w-[100px] font-medium ${labelMuted}`}>{label}</dt>
+              <dd className="font-medium text-[#14140F] break-all">{value}</dd>
             </div>
           ))}
         </dl>
