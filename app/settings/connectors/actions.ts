@@ -23,14 +23,31 @@
 import { auth } from "@clerk/nextjs/server";
 import { eq, and } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { userIdentities } from "@/db/schema";
+import { userIdentities, connectorAccounts } from "@/db/schema";
 import { getEnv } from "@/config/env";
-import { createConnectSession, type KeepsProvider } from "@/connectors/composio";
+import {
+  createConnectSession,
+  deleteConnectedAccount,
+  MissingComposioConfigError,
+  type KeepsProvider,
+} from "@/connectors/composio";
 import {
   connectFlow,
   reconnectFlow,
   type ConnectFlowResult,
 } from "@/connectors/connect-flow";
+
+// ---------------------------------------------------------------------------
+// DisconnectFlowResult — typed result for startConnectorDisconnect
+// ---------------------------------------------------------------------------
+
+export type DisconnectFlowResult =
+  | { ok: true }
+  | { ok: false; error: "unauthenticated" }
+  | { ok: false; error: "user_not_found" }
+  | { ok: false; error: "not_configured"; detail?: string }
+  | { ok: false; error: "not_found" }
+  | { ok: false; error: "unknown" };
 
 // ---------------------------------------------------------------------------
 // Shared user resolver — Clerk user ID → internal users.id UUID
@@ -123,4 +140,98 @@ export async function startConnectorReconnect(
     resolveUser: resolveInternalUserId,
     createSession: createConnectSession,
   });
+}
+
+// ---------------------------------------------------------------------------
+// startConnectorDisconnect — flip row to disabled + best-effort Composio delete
+// ---------------------------------------------------------------------------
+
+/**
+ * Server action: disconnects a provider by flipping the connector_accounts row
+ * to status='disabled' and calling deleteConnectedAccount() on Composio
+ * (best-effort — if Composio delete throws we still mark disabled locally).
+ *
+ * Returns a typed result object (never throws to the client):
+ *   - { ok: true }                           — success (row marked disabled)
+ *   - { ok: false, error: 'unauthenticated' } — no Clerk session
+ *   - { ok: false, error: 'user_not_found' }  — no Keeps identity row
+ *   - { ok: false, error: 'not_found' }       — no connector_accounts row for provider
+ *   - { ok: false, error: 'not_configured' }  — missing Composio env var
+ *   - { ok: false, error: 'unknown' }         — unexpected DB error
+ */
+export async function startConnectorDisconnect(
+  provider: KeepsProvider,
+): Promise<DisconnectFlowResult> {
+  const { userId: clerkUserId } = await auth();
+  if (!clerkUserId) {
+    return { ok: false, error: "unauthenticated" };
+  }
+
+  const internalUserId = await resolveInternalUserId(clerkUserId);
+  if (!internalUserId) {
+    return { ok: false, error: "user_not_found" };
+  }
+
+  const db = getDb();
+
+  // Fetch the existing connector_accounts row for this user + provider.
+  const [existing] = await db
+    .select({
+      id: connectorAccounts.id,
+      composioConnectedAccountId: connectorAccounts.composioConnectedAccountId,
+      status: connectorAccounts.status,
+    })
+    .from(connectorAccounts)
+    .where(
+      and(
+        eq(connectorAccounts.userId, internalUserId),
+        eq(connectorAccounts.provider, provider),
+      ),
+    )
+    .limit(1);
+
+  if (!existing) {
+    return { ok: false, error: "not_found" };
+  }
+
+  // Mark disabled locally first — the source of truth for the UI.
+  try {
+    await db
+      .update(connectorAccounts)
+      .set({
+        status: "disabled",
+        disconnectedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(connectorAccounts.id, existing.id));
+  } catch {
+    return { ok: false, error: "unknown" };
+  }
+
+  // Best-effort: delete the connected account in Composio so OAuth tokens are
+  // revoked. If this throws (e.g. already deleted, network error, missing API
+  // key) we log but do not fail — the local row is already marked disabled.
+  try {
+    await deleteConnectedAccount(existing.composioConnectedAccountId);
+  } catch (err) {
+    if (err instanceof MissingComposioConfigError) {
+      // Composio is not configured — local disable already succeeded; surface
+      // not_configured so the UI can show a relevant message if needed.
+      // However, the disconnect intent was fulfilled locally, so return ok:true
+      // to avoid confusion (the user is effectively disconnected in our DB).
+      // Log to server console for operator visibility.
+      console.warn(
+        "[startConnectorDisconnect] Composio not configured — skipping remote delete",
+        err.message,
+      );
+    } else {
+      // Network or API error — log and continue; local state is authoritative.
+      console.warn(
+        "[startConnectorDisconnect] Composio deleteConnectedAccount failed (best-effort)",
+        err,
+      );
+    }
+  }
+
+  return { ok: true };
 }
