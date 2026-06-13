@@ -40,7 +40,7 @@ Sensitive actions require an `approval_request` record before execution:
 - creating or editing external tasks
 - revealing source evidence to another user
 
-Calendar reminders are still approval-gated in Phase 0. We can loosen this later for direct explicit commands such as "remind me Thursday".
+Calendar reminders were approval-gated in Phase 0. **Phase 4 loosened this** (see `docs/phases/phase-4-slack-calendar-connectors.md`): gating is now by *reversibility*. A direct `@Calendar` command for a self-only event (no attendees) is reversible — it uses a **confirmation window** (a "cancel within 15 minutes" email; it is added unless cancelled) rather than a hard approval. Anything that touches another person — a Slack DM, or a calendar event *with attendees* — stays hard-approval-gated.
 
 ## Vocabulary
 

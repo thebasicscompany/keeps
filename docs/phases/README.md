@@ -84,7 +84,7 @@ Task breakdowns should be written so a fresh agent can execute a single task fro
 | 2.6 | `phase-2.6-auth-go-live.md` | Clerk auth replacing dev stub, claim flow on Clerk-verified email, live Postmark transport (outbound) + inbound stream/DNS, Vercel + RDS + Inngest cloud deployment, webhook hardening | 2.5 |
 | 2.7 | `phase-2.7-capture-aperture.md` | Activation email for unknown senders (with RFC 3834 mail-loop guards), CC-once thread following (attach known-thread counterparty replies), capture recipes doc (Gmail filter auto-forward), deferred claim-path smoke (AR-9) | 2.6 |
 | 3 | `phase-3-nudges-digests-approvals.md` | Nudge cron sweep (AR-5), daily digest with coverage line + capture prompt (AR-9), approval requests + `waitForEvent`, signed expiring approval links, reply approve/reject/edit | 2.5, 2.6 |
-| 4 | `phase-4-slack-calendar-connectors.md` | Nango setup, Slack + Google Calendar OAuth, `@Slack`/`@Calendar` command parsing, drafts → approval → execute-once, policy `authorize()` evolution (AR-7) | 3 |
+| 4 ✅ | `phase-4-slack-calendar-connectors.md` | **DONE (Composio, not Nango).** Slack + Google Calendar OAuth via Composio managed auth, `@Slack`/`@Calendar` command parsing, generic connector core (allowlist + recipient resolution + execute-once), reversibility-gated approval/confirmation, `authorize()` (AR-7). Live-verified on keeps.email. | 3 |
 | 5 | `phase-5-generated-insight-views.md` | Generated report records, signed expiring URLs, memo-style report pages with row actions, insight email commands | 3 |
 | 6 | `phase-6-reliability-eval-trust.md` | Eval fixture suite + precision tracking, observability, delete/export/retention, dead-letter queue, replay handling | 3 (5 ideally) |
 

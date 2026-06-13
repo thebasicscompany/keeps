@@ -1,6 +1,6 @@
 # Phase 4: Slack And Calendar Connectors
 
-Status: planned
+Status: DONE — shipped + live-verified 2026-06-13 (Composio, superseding Nango). See "Closeout" at the end.
 Depends on: 3
 Roadmap reference: `docs/roadmap.md` "Phase 4: Slack And Calendar Commands", "Architecture Decision Record > Connectors", "Safety Boundary"
 
@@ -254,3 +254,26 @@ Fixtures needed:
 - [ ] Live sandbox runs (Slack + Calendar) executed once by hand against real workspaces; results logged in the phase commit message. Not gated in CI.
 - [ ] `product-contract.md` updated with one sentence noting Phase 4 loosens calendar approval gating to a confirmation window.
 - [ ] All Inngest events from the Events section are emitted by the workflow at the documented lifecycle points; audit log has matching entries.
+
+## Closeout (2026-06-13)
+
+Phase 4 shipped to production on **Composio** (the plan's Nango specifics were superseded; architecture unchanged — provider-agnostic transport seam). Deployed to keeps.email; migrations 0011/0012 applied to prod RDS.
+
+**Delivered + verified:**
+- Generic connector core — one execution path (`executeComposioTool`), an action allowlist + reversibility classifier (`action-registry.ts`), recipient resolution with ambiguity blocking (`recipient.ts`), and the execute-once layer (`execute.ts`, real `SELECT … FOR UPDATE`). The plan's per-tool modules were collapsed into this generic shape — Composio supplies provider knowledge, not our code.
+- AR-7 `authorize()` gate enforced against the live approval row inside the execute transaction.
+- `handle-connector-command` workflow: load account → resolve recipient → frozen payload → approval (Slack hard-approval / self-calendar confirmation-window) → execute-once → emit lifecycle events.
+- Composio account lifecycle: webhook (signature-verified) + hydration + status-poll sweep (the revocation guarantee, since the webhook is best-effort).
+- Settings page (connect/disconnect/reconnect), connector email templates with **Approve/Deny buttons**.
+- **Live-verified end to end:** `@Slack tell <person> …` → approval email → web approve → real Slack DM delivered **automatically** (`connector.action_executed` audited); real Google Calendar event created + deleted against the live API.
+- Gates: `pnpm typecheck` + 902 tests (incl. real-Postgres concurrent execute-once + E1–E6) + `pnpm build`, all green.
+- Composio integration verified against current docs + the live API. **7 bugs caught and fixed** during verification: reconnect upsert conflict target, webhook secret HMAC, webhook payload parsing, **toolkit-version pinning (would have broken every prod execute)**, double approval email, calendar confirmation-window TTL, and `waitForEvent` match (the approval correlation).
+
+**Known follow-ups (deferred, tracked):**
+1. ~~Connection reconciliation from Composio~~ — built as the immediate fast-follow (settings + email-flow self-heal), removing the dependency on the best-effort webhook / manual backfill.
+2. Reply-to-approve for connector commands (email-native approval; Phase 3 has it, connectors don't — no nudge row backing the Reply-To). Optionally surface as a `mailto:` Approve button.
+3. Reconnect-on-revoke webhook not live-verified (Composio dashboard webhook config unconfirmed); the status-poll sweep is the guarantee, so it fails safe.
+4. Connector approval email isn't persisted to `outbound_emails` (observability only).
+5. Calendar custom reminder overrides (V0 uses Google defaults; the curated slug has no override field).
+6. Postmark tier upgrade — deferred until volume-limited.
+7. Slack self-DM (`destination.kind === 'self'`) returns `not_found` — not wired in V0.
