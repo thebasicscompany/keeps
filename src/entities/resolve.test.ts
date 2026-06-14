@@ -6,7 +6,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { FREEMAIL_DOMAINS, companyDomainFromEmail, normalizeEmail } from "@/entities/resolve";
+import {
+  FREEMAIL_DOMAINS,
+  companyDomainFromEmail,
+  isPunycodeDomain,
+  isRoleMailbox,
+  normalizeEmail,
+} from "@/entities/resolve";
 
 // ---------------------------------------------------------------------------
 // normalizeEmail
@@ -160,5 +166,52 @@ describe("companyDomainFromEmail", () => {
 
   it("works with subdomains", () => {
     expect(companyDomainFromEmail("jane@mail.acme.com")).toBe("mail.acme.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isRoleMailbox (audit R2 — role/shared mailboxes are not people)
+// ---------------------------------------------------------------------------
+
+describe("isRoleMailbox", () => {
+  it("flags common role/shared mailboxes", () => {
+    expect(isRoleMailbox("sales@acme.com")).toBe(true);
+    expect(isRoleMailbox("founders@acme.com")).toBe(true);
+    expect(isRoleMailbox("support@acme.com")).toBe(true);
+    expect(isRoleMailbox("info@acme.com")).toBe(true);
+    expect(isRoleMailbox("no-reply@acme.com")).toBe(true);
+    expect(isRoleMailbox("postmaster@acme.com")).toBe(true);
+  });
+
+  it("does NOT flag real personal addresses", () => {
+    expect(isRoleMailbox("jane@acme.com")).toBe(false);
+    expect(isRoleMailbox("jane.doe@acme.com")).toBe(false);
+    expect(isRoleMailbox("salesperson@acme.com")).toBe(false); // not an exact role match
+  });
+
+  it("returns false for null", () => {
+    expect(isRoleMailbox(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPunycodeDomain (audit R3 — IDN/homoglyph guard)
+// ---------------------------------------------------------------------------
+
+describe("isPunycodeDomain", () => {
+  it("flags punycode/IDN domains", () => {
+    expect(isPunycodeDomain("xn--80ak6aa92e.com")).toBe(true);
+    expect(isPunycodeDomain("xn--e1afmkfd.xn--p1ai")).toBe(true);
+  });
+
+  it("does NOT flag normal ASCII domains", () => {
+    expect(isPunycodeDomain("acme.com")).toBe(false);
+    expect(isPunycodeDomain("mail.acme.co.uk")).toBe(false);
+  });
+
+  it("non-ASCII (raw Unicode) domains are already rejected by normalizeEmail upstream", () => {
+    // The Cyrillic-homoglyph "аcme.com" never reaches company resolution — it fails the
+    // ASCII-only domain guard in normalizeEmail.
+    expect(normalizeEmail("jane@аcme.com")).toBeNull();
   });
 });

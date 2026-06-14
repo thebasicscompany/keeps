@@ -145,6 +145,22 @@ describe.skipIf(!TEST_DATABASE_URL)("entity resolver (DB integration)", () => {
     });
   });
 
+  describe("role mailboxes are not persons (audit R2)", () => {
+    it("resolves a role/shared mailbox as kind 'other', flagged", async () => {
+      const role = await resolveEntity({ userId, name: "Acme Sales", email: "sales@acme-roles.test" }, db);
+      expect(role.kind).toBe("other");
+      expect((role.metadata as Record<string, unknown>).roleMailbox).toBe(true);
+      // still email-keyed: a second hit dedupes to the same row
+      const again = await resolveEntity({ userId, name: null, email: "sales@acme-roles.test" }, db);
+      expect(again.id).toBe(role.id);
+    });
+
+    it("a real person at the same domain is still kind 'person'", async () => {
+      const person = await resolveEntity({ userId, name: "Jane", email: "jane@acme-roles.test" }, db);
+      expect(person.kind).toBe("person");
+    });
+  });
+
   // -------------------------------------------------------------------------
   // mergedIntoEntityId pointer following
   // -------------------------------------------------------------------------

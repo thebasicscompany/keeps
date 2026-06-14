@@ -79,6 +79,46 @@ export const FREEMAIL_DOMAINS = new Set<string>([
 ]);
 
 /**
+ * Role / shared / functional mailbox local-parts (RFC 2142 + common extensions). An address
+ * like sales@acme.com or founders@acme.com is NOT a single person — resolving it as a
+ * `person` entity pollutes the people graph and invites name-collision false-merges. We still
+ * find-or-create it (so it dedupes and its company still resolves), but as kind `other`.
+ */
+export const ROLE_MAILBOX_LOCAL_PARTS = new Set<string>([
+  // RFC 2142
+  "postmaster", "hostmaster", "webmaster", "abuse", "noc", "security",
+  "info", "marketing", "sales", "support",
+  // Common functional/shared accounts
+  "admin", "administrator", "contact", "hello", "help", "team", "founders", "founder",
+  "billing", "accounts", "accounting", "finance", "ar", "ap", "invoices",
+  "careers", "jobs", "recruiting", "hr", "people", "press", "media", "pr",
+  "legal", "privacy", "compliance", "dpo", "gdpr",
+  "noreply", "no-reply", "donotreply", "do-not-reply", "no_reply",
+  "mailer-daemon", "bounce", "bounces", "notifications", "notification", "alerts",
+  "service", "services", "office", "mail", "email", "newsletter", "news", "updates",
+]);
+
+/**
+ * True when a normalized email's local part is a known role/shared mailbox (not a person).
+ */
+export function isRoleMailbox(normalizedEmail: string | null): boolean {
+  if (!normalizedEmail) return false;
+  const atIdx = normalizedEmail.indexOf("@");
+  if (atIdx <= 0) return false;
+  return ROLE_MAILBOX_LOCAL_PARTS.has(normalizedEmail.slice(0, atIdx));
+}
+
+/**
+ * True when any label of a domain is an IDNA/punycode label (xn--). Such domains can be
+ * homoglyph spoofs of a real company (e.g. xn--80ak6aa92e.com rendering as "аpple.com"),
+ * so we flag them on the company entity for human review rather than trusting them as a
+ * confident company key. (Raw non-ASCII domains are already rejected by normalizeEmail.)
+ */
+export function isPunycodeDomain(domain: string): boolean {
+  return domain.split(".").some((label) => label.startsWith("xn--"));
+}
+
+/**
  * Normalize an email address for use as the canonical merge key:
  * - Trim whitespace
  * - Lowercase the entire address
@@ -338,17 +378,20 @@ async function resolveByEmail(
     return touchEntitySeen(canonical, name, db);
   }
 
-  // Not found — INSERT new person entity
+  // Not found — INSERT new entity. A role/shared mailbox (sales@, founders@, …) is keyed by
+  // email like anyone else but is NOT a person — store it as kind 'other' so it stays out of
+  // the people graph and never participates in name-only person matching.
   const displayName = name?.trim() || normalizedEmail;
   const initialAliases: string[] = name?.trim() ? [name.trim()] : [];
+  const isRole = isRoleMailbox(normalizedEmail);
 
   const newEntity: NewEntity = {
     userId,
-    kind: "person",
+    kind: isRole ? "other" : "person",
     displayName,
     canonicalEmail: normalizedEmail,
     aliases: initialAliases,
-    metadata: {},
+    metadata: isRole ? { roleMailbox: true } : {},
   };
 
   const [inserted] = await db
@@ -504,7 +547,9 @@ export async function resolveCompany(
     displayName: domainLower,
     canonicalEmail: null,
     aliases: [],
-    metadata: { domain: domainLower },
+    // Flag punycode/IDN domains for human review — they can be homoglyph spoofs of a real
+    // company. We still create the entity (so loops link), but mark it as low-trust.
+    metadata: isPunycodeDomain(domainLower) ? { domain: domainLower, idn: true } : { domain: domainLower },
   };
 
   const [inserted] = await database.insert(entities).values(newEntity).onConflictDoNothing().returning();
