@@ -112,6 +112,13 @@ export type RouterDeps = {
    * useModel) or a generic clarification reply.
    */
   listTrackedParticipants?: (userId: string) => Promise<string[]>;
+  /**
+   * Entity-graph lookup port (Phase 7 C2). Resolves a raw entity-candidate string
+   * (name, email, or domain) to an existing entity-graph id for the recall view.
+   * READ-ONLY — never creates an entity. Optional: absent → no entityId is set on
+   * the emitted scope, so the report falls back to the legacy substring filter.
+   */
+  findEntityByQuery?: (input: { userId: string; query: string }) => Promise<{ id: string; displayName: string; kind: string } | null>;
 };
 
 export type RouteEmailResult = {
@@ -302,6 +309,22 @@ async function runInsightCommandBranch(
     return finishStub(email, deps, classified, reply);
   }
 
+  // For entity queries: attempt to resolve the raw candidate string to an existing
+  // entity-graph id (Phase 7 C2). This is read-only and conservative — if it resolves,
+  // scope.entityId is set so generate-report uses assembleEntityReport (real graph view).
+  // If it does NOT resolve (or the port is absent), we keep the existing scope (entity
+  // string only) which falls back to the participant-list substring match inside
+  // assembleReport. The port is injected by process-email.ts in production and by tests;
+  // absent means no entity-graph lookup (graceful degradation, no live DB call here).
+  let resolvedScope = classification.scope as Record<string, unknown>;
+  if (classification.kind === "entity" && "entity" in classification.scope && deps.findEntityByQuery) {
+    const entityCandidate = (classification.scope as { entity: string }).entity;
+    const resolved = await deps.findEntityByQuery({ userId: email.userId, query: entityCandidate });
+    if (resolved) {
+      resolvedScope = { ...resolvedScope, entityId: resolved.id };
+    }
+  }
+
   // Emit the canonical report.requested; generate-report builds the report and sends
   // the private reply (with the /r/<token> link). No inline reply nudge here.
   const reportRequested: KeepsWorkflowEvent = {
@@ -309,7 +332,7 @@ async function runInsightCommandBranch(
     data: {
       userId: email.userId,
       kind: classification.kind,
-      scope: classification.scope,
+      scope: resolvedScope,
       requestedVia: "email_command",
       inboundEmailId: email.id,
     },

@@ -24,6 +24,7 @@ import { loadReportByToken, recordReportView } from "@/reports/service";
 import { DrizzleReportsRepository } from "@/reports/repository";
 import { ReportHeader } from "@/reports/components/ReportHeader";
 import { ReportSection } from "@/reports/components/ReportSection";
+import { EntityHeader } from "@/reports/components/EntityHeader";
 import { sendEvent } from "@/workflows/events";
 
 // Live-query: never cache. auth() also requires a dynamic render.
@@ -117,6 +118,16 @@ export default async function ReportPage({
           totalOpen={result.sections.totalOpen}
           now={result.sections.now}
         />
+
+        {/* Entity-centric header block: shown when this is a graph-resolved entity report */}
+        {result.sections.kind === "entity" && typeof result.sections.scope.entityId === "string" && (
+          <EntityHeader
+            scope={result.sections.scope}
+            totalOpen={result.sections.totalOpen}
+            totalClosed={typeof result.sections.scope.closedCount === "number" ? result.sections.scope.closedCount : 0}
+            now={result.sections.now}
+          />
+        )}
 
         {summary && (
           <p className="-mt-2 text-[15px] font-medium leading-snug text-[#6F6F66]">

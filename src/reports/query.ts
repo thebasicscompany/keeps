@@ -603,7 +603,14 @@ export function entitySliceToSections(slice: EntityReportSlice, now: Date): Repo
 
   return {
     kind: "entity",
-    scope: { entityId: slice.entity.id, entity: slice.entity.displayName },
+    scope: {
+      entityId: slice.entity.id,
+      entity: slice.entity.displayName,
+      entityKind: slice.entity.kind,
+      firstSeenAt: slice.entity.firstSeenAtIso,
+      lastSeenAt: slice.entity.lastSeenAtIso,
+      closedCount: slice.closedCount,
+    },
     now,
     totalOpen: slice.openCount,
     sections,

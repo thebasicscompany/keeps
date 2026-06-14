@@ -10,7 +10,7 @@
  * deterministic token (A2) and query (A4) primitives.
  */
 
-import { assembleReport, type ReportSections } from "@/reports/query";
+import { assembleReport, assembleEntityReport, entitySliceToSections, type ReportSections } from "@/reports/query";
 import {
   hashReportToken,
   mintReportToken,
@@ -140,6 +140,17 @@ export async function loadReportByToken(input: {
   // Only `summary` + `scope` are frozen because they capture the user's intent at
   // REQUEST time (what they asked to see, and the narrative authored then) — those
   // are not loop state and should not move under the user's feet.
+  // When scope.entityId is present (Phase 7 C2), the /r page is an entity-graph view:
+  // assemble directly from the entity graph rather than re-running the substring filter.
+  const entityId = typeof report.scope.entityId === "string" ? report.scope.entityId : null;
+  if (report.kind === "entity" && entityId !== null) {
+    const slice = await assembleEntityReport({ userId: report.userId, entityId });
+    const sections = slice
+      ? entitySliceToSections(slice, input.now)
+      : assembleReport({ kind: report.kind, scope: report.scope, now: input.now, loops: [], loopActivity: [] });
+    return { status: "live", report, sections, summary: report.summary };
+  }
+
   const { loops, loopActivity } = await input.repository.loadLoopsForScope(
     report.userId,
     report.scope,

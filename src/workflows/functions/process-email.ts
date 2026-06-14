@@ -11,6 +11,7 @@ import type { AnswerQuestionPorts } from "@/workflows/functions/handlers/answer-
 import type { ApprovalReplyAudit } from "@/workflows/functions/handlers/handle-approval-reply";
 import { routeEmail } from "@/workflows/functions/route-email";
 import { parseConnectorCommand } from "@/agent/parse-connector-command";
+import { findEntityByQuery } from "@/entities/lookup";
 import { inngest } from "@/workflows/client";
 import { withInngestSentry } from "@/observability/inngest-sentry";
 import { recordDeadLetter } from "@/workflows/dead-letter";
@@ -160,6 +161,8 @@ export const processEmail = inngest.createFunction(
         // convention, so the parser uses the model in production and the deterministic
         // regex in tests.
         parseConnectorCommand,
+        // Phase 7 (C2): resolve entity-query candidate → entity graph id for real entity view.
+        findEntityByQuery,
       });
     });
 
