@@ -1,3 +1,4 @@
+import type { LoopStatus } from "@/agent/schemas";
 import { reportConfig, type ReportConfig } from "./config";
 
 // ── Input types ──────────────────────────────────────────────────────────────
@@ -6,15 +7,8 @@ export type ReportLoopParticipant = { name?: string | null; email?: string | nul
 
 export type ReportLoop = {
   id: string;
-  status:
-    | "candidate"
-    | "open"
-    | "waiting_on_me"
-    | "waiting_on_other"
-    | "blocked"
-    | "snoozed"
-    | "done"
-    | "dismissed";
+  // Full persisted status set incl. Phase 7 'suppressed' (excluded from recall buckets).
+  status: LoopStatus;
   summary: string;
   ownerText: string | null;
   requesterText: string | null;

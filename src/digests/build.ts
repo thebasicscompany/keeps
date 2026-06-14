@@ -44,19 +44,15 @@
  *   recentlyDone   : updatedAt DESC (most recently done first)
  */
 
+import type { LoopStatus } from "@/agent/schemas";
+
 /** Minimum shape required from a loop input record. */
 export interface DigestLoopInput {
   id: string;
   emailThreadId: string;
-  status:
-    | "candidate"
-    | "open"
-    | "waiting_on_me"
-    | "waiting_on_other"
-    | "blocked"
-    | "snoozed"
-    | "done"
-    | "dismissed";
+  // Full persisted status set incl. Phase 7 'suppressed' (which matches no digest bucket,
+  // so suppressed loops are naturally excluded from every section).
+  status: LoopStatus;
   summary: string;
   dueAt: Date | null;
   nextCheckAt: Date | null;

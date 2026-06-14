@@ -92,6 +92,9 @@ export const loopStatusEnum = pgEnum("loop_status", [
   "snoozed",
   "done",
   "dismissed",
+  // Phase 7: a created-but-hidden duplicate from the uncertain-middle reconciliation band.
+  // NOT nudged, NOT surfaced as open; promoted to 'open' or dismissed on user confirmation.
+  "suppressed",
 ]);
 
 export const loopKindEnum = pgEnum("loop_kind", [
@@ -119,6 +122,10 @@ export const loopEventTypeEnum = pgEnum("loop_event_type", [
   // Phase 3 additions
   "nudged",
   "digest_summarized",
+  // Phase 7 reconciliation provenance (AR-9)
+  "reconciled", // auto advance/close of an existing loop
+  "reconcile_suggested", // uncertain middle: ask sent + suppressed duplicate created
+  "superseded", // suppressed duplicate dismissed; update applied to the original
 ]);
 
 export const approvalStatusEnum = pgEnum("approval_status", [

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+// The statuses the MODEL may propose for a freshly-extracted loop. Decider-only states
+// (e.g. Phase 7 'suppressed') are deliberately ABSENT here so the model can never emit them.
 export const loopStatusSchema = z.enum([
   "candidate",
   "open",
@@ -9,6 +11,21 @@ export const loopStatusSchema = z.enum([
   "snoozed",
   "done",
   "dismissed",
+]);
+
+// The FULL set of persisted loop statuses (superset of the model-proposable ones). 'suppressed'
+// is assigned only by the deterministic reconciliation decider (Phase 7), never by extraction.
+// LoopStatus is derived from THIS so every DB-row consumer is aware of the suppressed state.
+export const persistedLoopStatusSchema = z.enum([
+  "candidate",
+  "open",
+  "waiting_on_me",
+  "waiting_on_other",
+  "blocked",
+  "snoozed",
+  "done",
+  "dismissed",
+  "suppressed",
 ]);
 
 export const loopKindSchema = z.enum([
@@ -68,7 +85,9 @@ export const loopExtractionResultSchema = z.object({
   suggestedPrivateReply: z.string().min(1),
 });
 
-export type LoopStatus = z.infer<typeof loopStatusSchema>;
+export type LoopStatus = z.infer<typeof persistedLoopStatusSchema>;
+/** The narrower set the model may propose at extraction time (no decider-only states). */
+export type ProposedLoopStatus = z.infer<typeof loopStatusSchema>;
 export type LoopKind = z.infer<typeof loopKindSchema>;
 export type SourceEvidence = z.infer<typeof sourceEvidenceSchema>;
 export type Participant = z.infer<typeof participantSchema>;

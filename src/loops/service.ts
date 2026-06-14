@@ -1,4 +1,4 @@
-import type { LoopCandidate, LoopStatus } from "@/agent/schemas";
+import type { LoopCandidate, LoopStatus, ProposedLoopStatus } from "@/agent/schemas";
 import { extractLoops } from "@/agent/extract-loops";
 import { prepareEmailForExtraction } from "@/email/extraction-body";
 import type { NormalizedEmail } from "@/email/normalize";
@@ -456,7 +456,7 @@ export async function applyLoopReplyCommand(input: {
   };
 }
 
-function chooseInitialLoopStatus(loop: LoopCandidate): LoopStatus {
+function chooseInitialLoopStatus(loop: LoopCandidate): ProposedLoopStatus {
   return loop.confidence >= highConfidenceLoopThreshold ? "open" : "candidate";
 }
 
