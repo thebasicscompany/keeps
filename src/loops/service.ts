@@ -82,6 +82,18 @@ export type PrivateReplyNudgeMetadata = {
    * so non-digest nudges and pre-C4 fakes are unaffected.
    */
   nudgeType?: string;
+  /**
+   * Phase 7 B2c — the suppressed-duplicate reconciliation asks this nudge posed. Each
+   * pair links the freshly-persisted SUPPRESSED loop to the existing CANDIDATE loop it
+   * might merge into. When the user replies YES/NO to this nudge, the router resolves
+   * the pending pairs off this field (nudge-type dispatch precedes intent dispatch — the
+   * same precedence rule as `approvalId`) and applies the merge / keep-separate.
+   *
+   * Additive + optional so every existing nudge and in-memory fake stays valid; absent
+   * or empty → the reconcile-confirm dispatch never fires and YES/NO falls through to
+   * normal intent handling.
+   */
+  pendingReconciliations?: { suppressedLoopId: string; candidateLoopId: string }[];
 };
 
 export type LoopProcessingRepository = {
@@ -172,7 +184,9 @@ export type LoopProcessingRepository = {
   recordReconciliationEvent?(input: {
     userId: string;
     loopId: string;
-    eventType: "reconciled" | "reconcile_suggested";
+    // Widened in B2c to also allow 'superseded' — written on a suppressed loop when the
+    // user confirms (YES) it is the same commitment as the candidate it merges into.
+    eventType: "reconciled" | "reconcile_suggested" | "superseded";
     metadata: Record<string, unknown>;
   }): Promise<void>;
 };
@@ -548,6 +562,12 @@ export async function processInboundEmailForLoops(input: {
       // 1-based ordinal → loop id, ordered exactly as the loops are listed in the reply body.
       // Suppressed loops are excluded — they are not addressable by ordinal.
       ordinalMap: Object.fromEntries(persistedLoops.map((loop, index) => [index + 1, loop.id])),
+      // Phase 7 B2c — carry the suppressed-duplicate asks so a YES/NO reply to THIS nudge
+      // can be resolved to its pending pairs. Empty when there were no asks (additive).
+      pendingReconciliations: suggestedReconciliations.map((suggestion) => ({
+        suppressedLoopId: suggestion.loop.id,
+        candidateLoopId: suggestion.candidateLoopId,
+      })),
     },
   });
   const events: Phase2WorkflowEvent[] = [

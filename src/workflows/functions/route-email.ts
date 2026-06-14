@@ -6,6 +6,7 @@ import {
 import type { ApprovalRepository } from "@/approvals/repository";
 import type { NormalizedEmail } from "@/email/normalize";
 import { parseLoopReplyCommand } from "@/loops/commands";
+import { parseReconcileConfirmReply } from "@/loops/reconcile-reply";
 import {
   applyLoopReplyCommand,
   processInboundEmailForLoops,
@@ -29,6 +30,7 @@ import {
   handleApprovalReply,
   type ApprovalReplyAudit,
 } from "@/workflows/functions/handlers/handle-approval-reply";
+import { handleReconcileConfirm } from "@/workflows/functions/handlers/reconcile-confirm";
 
 /**
  * Branch label recorded on `email.classified`. Mirrors `intent` today but is kept
@@ -192,6 +194,23 @@ export async function routeEmail(inboundEmailId: string, deps: RouterDeps): Prom
 
   if (target?.metadata.approvalId) {
     return runApprovalBranch(email, deps, classified("approval", 0), target.metadata.approvalId);
+  }
+
+  // Reconcile-confirm nudge-type dispatch (Phase 7 B2c): when the originating nudge
+  // carries pending suppressed-duplicate asks AND this reply parses as a YES/NO answer,
+  // resolve the merge / keep-separate BEFORE intent dispatch — same precedence rule as
+  // approvalId (nudge-type dispatch precedes intent dispatch). This only fires when the
+  // nudge actually posed an ask, so a bare "YES"/"NO" elsewhere is untouched; and only
+  // when the answer is recognizably YES/NO, so an ordinary command ("done 1") on a nudge
+  // that HAS pending asks still parses as a normal command (parseReconcileConfirmReply
+  // returns null → no hijack).
+  const replyText = email.normalized.strippedTextReply ?? email.normalized.textBody;
+  const pending = target?.metadata.pendingReconciliations ?? [];
+  if (pending.length > 0) {
+    const answer = parseReconcileConfirmReply(replyText);
+    if (answer) {
+      return runReconcileConfirmBranch(email, deps, classified("command", 0), answer, pending);
+    }
   }
 
   // ---- (2) INTENT DISPATCH ----
@@ -525,6 +544,42 @@ async function runApprovalBranch(
   });
 
   return finishStub(email, deps, classified, result.reply);
+}
+
+async function runReconcileConfirmBranch(
+  email: RoutableEmail,
+  deps: RouterDeps,
+  classified: RouterClassified,
+  answer: "same" | "different",
+  pending: { suppressedLoopId: string; candidateLoopId: string }[],
+): Promise<RouteEmailResult> {
+  const commandText = email.normalized.strippedTextReply ?? email.normalized.textBody;
+  const result = await handleReconcileConfirm({
+    userId: email.userId,
+    answer,
+    pendingReconciliations: pending,
+    commandText,
+    sourceInboundEmailId: email.id,
+    repository: deps.repository,
+  });
+
+  const nudge = await deps.repository.createReplyNudge({
+    userId: email.userId,
+    inboundEmailId: email.id,
+    subject: replySubject(email.normalized.subject),
+    body: result.reply,
+    intent: "command",
+  });
+  await deps.sendReply(nudge.id);
+
+  return {
+    status: "processed",
+    intent: "command",
+    branch: "command",
+    events: [classified, ...result.events],
+    loops: [],
+    nudgeId: nudge.id,
+  };
 }
 
 async function finishStub(

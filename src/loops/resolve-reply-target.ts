@@ -168,7 +168,32 @@ function asPrivateReplyMetadata(value: unknown): PrivateReplyNudgeMetadata {
     // Absent on capture/command nudges → undefined (handled as "not an approval").
     approvalId: typeof record.approvalId === "string" ? record.approvalId : null,
     nudgeType: typeof record.nudgeType === "string" ? record.nudgeType : undefined,
+    // Phase 7 B2c — the suppressed-duplicate asks (suppressed→candidate pairs). Coerced
+    // defensively so malformed/legacy jsonb degrades to an empty list (no reconcile dispatch).
+    pendingReconciliations: asPendingReconciliations(record.pendingReconciliations),
   };
+}
+
+/**
+ * Coerce the persisted `pendingReconciliations` jsonb into well-formed pairs. Drops any
+ * entry missing a string `suppressedLoopId`/`candidateLoopId` so a malformed value never
+ * causes the reconcile-confirm dispatch to fire against a bad loop id.
+ */
+function asPendingReconciliations(
+  value: unknown,
+): { suppressedLoopId: string; candidateLoopId: string }[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    return typeof record.suppressedLoopId === "string" && typeof record.candidateLoopId === "string"
+      ? [{ suppressedLoopId: record.suppressedLoopId, candidateLoopId: record.candidateLoopId }]
+      : [];
+  });
 }
 
 /**
