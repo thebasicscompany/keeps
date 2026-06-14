@@ -4,6 +4,11 @@ import { prepareEmailForExtraction } from "@/email/extraction-body";
 import type { NormalizedEmail } from "@/email/normalize";
 import { parseLoopReplyCommand, type LoopReplyCommand } from "@/loops/commands";
 import { buildPrivateLoopReply } from "@/loops/replies";
+import type { ExtractionContext } from "@/agent/extraction-context";
+import {
+  decideReconciliation,
+  type ReconcileDecision,
+} from "@/agent/reconcile";
 
 export const highConfidenceLoopThreshold = 0.7;
 
@@ -15,8 +20,24 @@ export type ProcessableInboundEmail = {
   normalized: NormalizedEmail;
 };
 
-export type LoopToPersist = LoopCandidate & {
+// Widened to the FULL LoopStatus (incl. 'suppressed') so the reconciliation
+// decider's `ask` outcome can persist a suppressed loop. `Omit` is required:
+// a plain `LoopCandidate & { status: LoopStatus }` intersects to the NARROW
+// ProposedLoopStatus (LoopCandidate already declares `status`), which would
+// reject 'suppressed'. The model still only proposes the narrow status; only
+// the decider assigns 'suppressed'.
+export type LoopToPersist = Omit<LoopCandidate, "status"> & {
   status: LoopStatus;
+};
+
+/**
+ * Phase 7 B2b — the result of loading reconciliation context for one inbound
+ * email. Superset of B3's ExtractionContext: also exposes the inbound email's
+ * resolved participant entity ids so the structural `sameEntity` check can
+ * intersect them against each candidate loop's entityIds.
+ */
+export type OpenLoopContext = ExtractionContext & {
+  participantEntityIds: string[];
 };
 
 export type PersistedLoop = {
@@ -105,7 +126,7 @@ export type LoopProcessingRepository = {
     commandText: string;
     eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
     /** Discriminates the originating path for loop_events.metadata. Defaults to "email_command". */
-    source?: "email_command" | "report_row_action";
+    source?: "email_command" | "report_row_action" | "auto_reconcile";
   }): Promise<PersistedLoop>;
   /**
    * Correction branch (Deliverable 5): record the user's correction text against a loop
@@ -122,6 +143,38 @@ export type LoopProcessingRepository = {
    * missing method exactly like a null result (UTC fallback).
    */
   findUserTimezone?(userId: string): Promise<string | null>;
+  /**
+   * Phase 7 B2b — load the reconciliation candidate set (open loops + known
+   * entities) plus the inbound email's resolved participant entity ids, for
+   * context-aware extraction + the three-band decider.
+   *
+   * OPTIONAL on the port so every pre-B2b in-memory fake remains a valid
+   * implementation without modification. When the method is ABSENT, the capture
+   * path runs with EMPTY context — the decider returns `create` for everything
+   * and behavior is byte-for-byte unchanged (backward-compat invariant).
+   */
+  loadOpenLoopContext?(input: {
+    userId: string;
+    threadId: string | null;
+    participants: { name: string | null; email: string | null }[];
+    queryText: string | null;
+  }): Promise<OpenLoopContext>;
+  /**
+   * Phase 7 B2b — write a reconciliation provenance loop_event (AR-9). Used for
+   * both `reconciled` (auto update/close) and `reconcile_suggested` (ask) so the
+   * decision is explainable in one sentence and the later confirm-reply handler
+   * can find suppressed loops by their `reconcile_suggested` event.
+   *
+   * OPTIONAL so pre-B2b fakes remain valid; the service treats a missing method
+   * as a no-op (the provenance write is best-effort enrichment, never a
+   * commitment, and a fake without it simply records nothing).
+   */
+  recordReconciliationEvent?(input: {
+    userId: string;
+    loopId: string;
+    eventType: "reconciled" | "reconcile_suggested";
+    metadata: Record<string, unknown>;
+  }): Promise<void>;
 };
 
 export type Phase2WorkflowEvent =
@@ -179,7 +232,7 @@ export type MutateLoopStateInput = {
   /** For non-snooze actions, the loop's current nextCheckAt so it is preserved unchanged. */
   nextCheckAt?: Date | null;
   commandText: string;
-  source: "email_command" | "report_row_action";
+  source: "email_command" | "report_row_action" | "auto_reconcile";
   repository: LoopProcessingRepository;
 };
 
@@ -216,12 +269,48 @@ export async function mutateLoopState(input: MutateLoopStateInput): Promise<Muta
   return { loop, event };
 }
 
+/**
+ * Phase 7 B2b — an auto-applied reconciliation (the decider AUTO-updated or
+ * AUTO-closed an existing loop instead of creating a new one). Additive result
+ * field so D2 / tests can surface provenance.
+ */
+export type AppliedReconciliation = {
+  loopId: string;
+  action: "update" | "close";
+  /** The mutated loop after mutateLoopState ran. */
+  loop: PersistedLoop;
+  evidence: string;
+  reason: string;
+  /** The summary of the freshly-extracted loop that was absorbed into the existing one. */
+  absorbedSummary: string;
+};
+
+/**
+ * Phase 7 B2b — a reconciliation the decider downgraded to ASK. The new loop is
+ * persisted SUPPRESSED (never lost, never nudged, not shown as open) and a
+ * `reconcile_suggested` provenance event is written so the later confirm-reply
+ * handler can find it. `askText` is surfaced in the private reply.
+ */
+export type SuggestedReconciliation = {
+  /** The newly-persisted suppressed loop. */
+  loop: PersistedLoop;
+  /** The existing candidate loop id the new loop might merge into. */
+  candidateLoopId: string;
+  evidence: string;
+  reason: string;
+  askText: string;
+};
+
 export type ProcessInboundEmailForLoopsResult =
   | {
       status: "processed";
       inboundEmailId: string;
       intent: string;
       loops: PersistedLoop[];
+      /** Auto-applied reconciliations (update/close) — these did NOT create a new loop. */
+      reconciliations: AppliedReconciliation[];
+      /** Suppressed (ask) loops awaiting user confirmation to merge. */
+      suggestedReconciliations: SuggestedReconciliation[];
       privateReply: string;
       nudgeId: string;
       events: Phase2WorkflowEvent[];
@@ -268,20 +357,160 @@ export async function processInboundEmailForLoops(input: {
   }
 
   const extractionBody = prepareEmailForExtraction(email.normalized);
+
+  // ── Phase 7 B2b: load reconciliation context (open loops + known entities +
+  // the inbound email's resolved participant entity ids). When the repo doesn't
+  // implement loadOpenLoopContext (every pre-B2b fake), context is EMPTY and the
+  // decider returns `create` for everything — byte-for-byte legacy behavior.
+  const context = await loadCaptureContext(email, extractionBody.normalizedBody, input.repository);
+
   const extraction = await extractLoops({
     email: email.normalized,
     useModel: input.useModel,
+    context: { openLoops: context.openLoops, knownEntities: context.knownEntities },
   });
-  const loopsToPersist = extraction.loops.map((loop): LoopToPersist => ({
-    ...loop,
-    status: chooseInitialLoopStatus(loop),
-  }));
+
+  // ── Partition extracted loops by the three-band decider. ────────────────────
+  // refId → candidate CompactLoop for O(1) resolution.
+  const candidateByRef = new Map(context.openLoops.map((loop) => [loop.refId, loop]));
+  const participantEntityIdSet = new Set(context.participantEntityIds);
+
+  const toCreate: LoopToPersist[] = [];
+  // Reconcile/ask decisions are applied AFTER the create-persist so we never
+  // accidentally mutate something mid-create; each carries the originating loop.
+  const reconcileDecisions: Array<{
+    decision: Extract<ReconcileDecision, { kind: "reconcile" }>;
+    loop: LoopCandidate;
+  }> = [];
+  const askDecisions: Array<{
+    decision: Extract<ReconcileDecision, { kind: "ask" }>;
+    loop: LoopCandidate;
+  }> = [];
+
+  for (const loop of extraction.loops) {
+    const candidateCompact = loop.reconcilesLoopRef
+      ? candidateByRef.get(loop.reconcilesLoopRef) ?? null
+      : null;
+
+    const decision = decideReconciliation({
+      proposal: {
+        reconcilesLoopRef: loop.reconcilesLoopRef,
+        reconcileAction: loop.reconcileAction,
+        reconcileConfidence: loop.reconcileConfidence,
+        reconcileEvidence: loop.reconcileEvidence,
+      },
+      candidate: candidateCompact
+        ? { id: candidateCompact.id, refId: candidateCompact.refId, summary: candidateCompact.summary }
+        : null,
+      structural: {
+        newLoopSummary: loop.summary,
+        sameThread: candidateCompact ? candidateCompact.emailThreadId === email.emailThreadId : false,
+        sameEntity: candidateCompact
+          ? candidateCompact.entityIds.some((id) => participantEntityIdSet.has(id))
+          : false,
+      },
+    });
+
+    if (decision.kind === "create") {
+      toCreate.push({ ...loop, status: chooseInitialLoopStatus(loop) });
+    } else if (decision.kind === "reconcile") {
+      reconcileDecisions.push({ decision, loop });
+    } else {
+      askDecisions.push({ decision, loop });
+    }
+  }
+
+  // ── Persist the CREATE set (today's behavior, unchanged). ───────────────────
   const persistedLoops = await input.repository.persistExtractedLoops({
     email,
-    loops: loopsToPersist,
+    loops: toCreate,
     normalizedBody: extractionBody.normalizedBody,
   });
-  const privateReply = buildPrivateLoopReply({
+
+  // ── Apply RECONCILE decisions: mutate the existing loop + write provenance. ──
+  // Never creates a new loop (cardinal: never lose a commitment — the existing
+  // loop is advanced/closed, the extracted one is absorbed into it).
+  const reconciliations: AppliedReconciliation[] = [];
+  for (const { decision, loop } of reconcileDecisions) {
+    const action = decision.action === "close" ? "mark_done" : "confirm";
+    const { loop: mutated } = await mutateLoopState({
+      loopId: decision.loopId,
+      userId: email.userId,
+      action,
+      commandText:
+        decision.action === "close"
+          ? `Auto-closed by reconciliation: ${loop.summary}`
+          : `Auto-advanced by reconciliation: ${loop.summary}`,
+      source: "auto_reconcile",
+      nextCheckAt: null,
+      repository: input.repository,
+    });
+
+    await input.repository.recordReconciliationEvent?.({
+      userId: email.userId,
+      loopId: decision.loopId,
+      eventType: "reconciled",
+      metadata: {
+        sourceInboundEmailId: email.id,
+        action: decision.action,
+        evidence: decision.evidence,
+        reason: decision.reason,
+        absorbedSummary: loop.summary,
+      },
+    });
+
+    reconciliations.push({
+      loopId: decision.loopId,
+      action: decision.action,
+      loop: mutated,
+      evidence: decision.evidence,
+      reason: decision.reason,
+      absorbedSummary: loop.summary,
+    });
+  }
+
+  // ── Apply ASK decisions: persist a SUPPRESSED loop (never lost) + provenance.
+  // The suppressed loop is hidden, not nudged, not shown as open. A
+  // `reconcile_suggested` event lets the later confirm-reply handler find it.
+  const suggestedReconciliations: SuggestedReconciliation[] = [];
+  for (const { decision, loop } of askDecisions) {
+    const candidateCompact = context.openLoops.find((openLoop) => openLoop.id === decision.loopId) ?? null;
+    const candidateSummary = candidateCompact?.summary ?? "your existing loop";
+
+    const suppressedToPersist: LoopToPersist = { ...loop, status: "suppressed" };
+    const [suppressedLoop] = await input.repository.persistExtractedLoops({
+      email,
+      loops: [suppressedToPersist],
+      normalizedBody: extractionBody.normalizedBody,
+    });
+
+    await input.repository.recordReconciliationEvent?.({
+      userId: email.userId,
+      loopId: suppressedLoop.id,
+      eventType: "reconcile_suggested",
+      metadata: {
+        sourceInboundEmailId: email.id,
+        candidateLoopId: decision.loopId,
+        candidateSummary,
+        evidence: decision.evidence,
+        reason: decision.reason,
+        suggestedSummary: loop.summary,
+      },
+    });
+
+    suggestedReconciliations.push({
+      loop: suppressedLoop,
+      candidateLoopId: decision.loopId,
+      evidence: decision.evidence,
+      reason: decision.reason,
+      askText: `Looks like your existing loop about "${candidateSummary}" — is this the same? Reply YES to merge or NO to keep separate.`,
+    });
+  }
+
+  // ── Private reply. Only the CREATE (non-suppressed) loops count toward the
+  // normal loop list / ordinalMap / low-confidence logic; suppressed loops and
+  // reconciliations are surfaced as additive context, never inflating the list.
+  const baseReply = buildPrivateLoopReply({
     extraction,
     loops: persistedLoops.map((loop, index) => ({
       ordinal: index + 1,
@@ -290,7 +519,22 @@ export async function processInboundEmailForLoops(input: {
       confidence: loop.confidence,
     })),
   });
-  const lowConfidence = loopsToPersist.length > 0 && loopsToPersist.every((loop) => loop.confidence < highConfidenceLoopThreshold);
+
+  const replyExtras: string[] = [];
+  for (const reconciliation of reconciliations) {
+    replyExtras.push(
+      reconciliation.action === "close"
+        ? `Closed your existing loop about "${reconciliation.loop.summary}".`
+        : `Advanced your existing loop about "${reconciliation.loop.summary}".`,
+    );
+  }
+  for (const ask of suggestedReconciliations) {
+    replyExtras.push(ask.askText);
+  }
+  const privateReply = replyExtras.length > 0 ? [baseReply, "", ...replyExtras].join("\n") : baseReply;
+
+  // low-confidence reflects only the CREATE set, exactly as before.
+  const lowConfidence = toCreate.length > 0 && toCreate.every((loop) => loop.confidence < highConfidenceLoopThreshold);
   const nudge = await input.repository.createPrivateReplyNudge({
     userId: email.userId,
     inboundEmailId: email.id,
@@ -302,6 +546,7 @@ export async function processInboundEmailForLoops(input: {
       loopCount: persistedLoops.length,
       lowConfidence,
       // 1-based ordinal → loop id, ordered exactly as the loops are listed in the reply body.
+      // Suppressed loops are excluded — they are not addressable by ordinal.
       ordinalMap: Object.fromEntries(persistedLoops.map((loop, index) => [index + 1, loop.id])),
     },
   });
@@ -340,6 +585,17 @@ export async function processInboundEmailForLoops(input: {
         },
       }),
     ),
+    ...reconciliations.map(
+      (reconciliation): Phase2WorkflowEvent => ({
+        name: "loop.updated",
+        data: {
+          loopId: reconciliation.loop.id,
+          userId: reconciliation.loop.userId,
+          status: reconciliation.loop.status,
+          eventType: reconciliation.action === "close" ? "marked_done" : "confirmed",
+        },
+      }),
+    ),
   ];
 
   return {
@@ -347,10 +603,43 @@ export async function processInboundEmailForLoops(input: {
     inboundEmailId: email.id,
     intent: extraction.intent,
     loops: persistedLoops,
+    reconciliations,
+    suggestedReconciliations,
     privateReply,
     nudgeId: nudge.id,
     events,
   };
+}
+
+/**
+ * Load the reconciliation context for the capture path. Falls back to EMPTY
+ * context (all-creates, legacy behavior) when the repository does not implement
+ * loadOpenLoopContext — the common case for in-memory fakes and the backward-
+ * compat guarantee.
+ */
+async function loadCaptureContext(
+  email: ProcessableInboundEmail,
+  normalizedBody: string,
+  repository: LoopProcessingRepository,
+): Promise<OpenLoopContext> {
+  if (!repository.loadOpenLoopContext) {
+    return { openLoops: [], knownEntities: [], participantEntityIds: [] };
+  }
+
+  const participants = [
+    { name: email.normalized.from.name, email: email.normalized.from.email },
+    ...email.normalized.to.map((address) => ({ name: address.name, email: address.email })),
+    ...email.normalized.cc.map((address) => ({ name: address.name, email: address.email })),
+  ];
+  const snippet = normalizedBody.slice(0, 200);
+  const queryText = `${email.normalized.subject} ${snippet}`.trim();
+
+  return repository.loadOpenLoopContext({
+    userId: email.userId,
+    threadId: email.emailThreadId,
+    participants,
+    queryText: queryText.length > 0 ? queryText : null,
+  });
 }
 
 export type ApplyLoopReplyCommandResult = {

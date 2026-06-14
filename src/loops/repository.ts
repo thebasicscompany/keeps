@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   auditLog,
+  entities,
   inboundEmails,
   loopEvents,
   loops,
@@ -9,12 +10,15 @@ import {
   sourceEvidence,
   users,
 } from "@/db/schema";
-import type { LoopCandidate, LoopStatus } from "@/agent/schemas";
+import type { LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
 import { linkLoopEntities } from "@/entities/link";
+import { loadExtractionContext } from "@/agent/extraction-context";
+import { normalizeEmail } from "@/entities/resolve";
 import type {
   LoopProcessingRepository,
   LoopToPersist,
+  OpenLoopContext,
   PersistedLoop,
   PersistedNudge,
   PrivateReplyNudgeMetadata,
@@ -344,7 +348,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     nextCheckAt?: Date | null;
     commandText: string;
     eventType: "confirmed" | "dismissed" | "snoozed" | "marked_done";
-    source?: "email_command" | "report_row_action";
+    source?: "email_command" | "report_row_action" | "auto_reconcile";
   }): Promise<PersistedLoop> {
     return this.db.transaction(async (tx) => {
       const [loop] = await tx
@@ -406,6 +410,62 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
       loopId: input.loopId,
       eventType: "corrected",
       commandText: input.commandText,
+    });
+  }
+
+  async loadOpenLoopContext(input: {
+    userId: string;
+    threadId: string | null;
+    participants: { name: string | null; email: string | null }[];
+    queryText: string | null;
+  }): Promise<OpenLoopContext> {
+    // Reuse B3's retrieval (DB-injected). It already resolves participant
+    // entities internally, but does not expose their ids — so we resolve the
+    // participant entity ids here (READ-ONLY, same normalization as B3) to feed
+    // the structural `sameEntity` check in the decider.
+    const context = await loadExtractionContext(
+      {
+        userId: input.userId,
+        threadId: input.threadId,
+        participants: input.participants,
+        queryText: input.queryText,
+      },
+      this.db,
+    );
+
+    const normalizedEmails = input.participants
+      .map((participant) => normalizeEmail(participant.email))
+      .filter((email): email is string => email !== null);
+
+    let participantEntityIds: string[] = [];
+    if (normalizedEmails.length > 0) {
+      const rows = await this.db
+        .select({ id: entities.id })
+        .from(entities)
+        .where(
+          and(
+            eq(entities.userId, input.userId),
+            inArray(entities.canonicalEmail, normalizedEmails),
+            isNotNull(entities.canonicalEmail),
+          ),
+        );
+      participantEntityIds = rows.map((row) => row.id);
+    }
+
+    return { ...context, participantEntityIds };
+  }
+
+  async recordReconciliationEvent(input: {
+    userId: string;
+    loopId: string;
+    eventType: "reconciled" | "reconcile_suggested";
+    metadata: Record<string, unknown>;
+  }): Promise<void> {
+    await this.db.insert(loopEvents).values({
+      userId: input.userId,
+      loopId: input.loopId,
+      eventType: input.eventType,
+      metadata: input.metadata,
     });
   }
 
