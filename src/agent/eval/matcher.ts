@@ -42,7 +42,7 @@ export function tokenize(value: string): string[] {
     .filter((token) => token.length > 0 && !STOP_WORDS.has(token));
 }
 
-function jaccard(a: string[], b: string[]): number {
+export function jaccard(a: string[], b: string[]): number {
   const setA = new Set(a);
   const setB = new Set(b);
 
