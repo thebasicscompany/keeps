@@ -845,6 +845,10 @@ export const entities = pgTable(
     canonicalEmailIdx: uniqueIndex("entities_user_canonical_email_unique")
       .on(table.userId, table.canonicalEmail)
       .where(sql`canonical_email IS NOT NULL`),
+    // Company entities key on metadata->>'domain' (canonical_email is NULL for them).
+    companyDomainIdx: uniqueIndex("entities_user_company_domain_unique")
+      .on(table.userId, sql`((metadata ->> 'domain'))`)
+      .where(sql`kind = 'company'`),
     userKindIdx: index("entities_user_kind_idx").on(table.userId, table.kind),
     mergedIntoIdx: index("entities_merged_into_idx").on(table.mergedIntoEntityId),
   }),

@@ -326,4 +326,76 @@ describe.skipIf(!TEST_DATABASE_URL)("entity resolver (DB integration)", () => {
       expect(result).toBeNull();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Hardening (audit findings C2 / H4 / M7) — false-merge guards on the edges
+  // -------------------------------------------------------------------------
+  describe("supplied-but-unnormalizable email (C2)", () => {
+    it("does NOT name-merge two distinct un-normalizable addresses with the same name", async () => {
+      // Both normalize to null (empty local after +strip) but were SUPPLIED — they must NOT
+      // fall into name-only matching and collapse.
+      const a = await resolveEntity({ userId, name: "Sales Team", email: "+sales@acme.com" }, db);
+      const b = await resolveEntity({ userId, name: "Sales Team", email: "+support@acme.com" }, db);
+      expect(a.id).not.toBe(b.id);
+      expect(a.canonicalEmail).toBeNull();
+      expect(b.canonicalEmail).toBeNull();
+    });
+
+    it("dedupes repeats of the SAME un-normalizable address", async () => {
+      const a = await resolveEntity({ userId, name: null, email: '"q@x"@weird.test' }, db);
+      const b = await resolveEntity({ userId, name: "Later Name", email: '"q@x"@weird.test' }, db);
+      expect(a.id).toBe(b.id);
+    });
+
+    it("keeps an un-normalizable-email entity email-less", async () => {
+      const u = await resolveEntity({ userId, name: "Weird Sender", email: "+x@weird2.test" }, db);
+      expect(u.canonicalEmail).toBeNull();
+    });
+  });
+
+  describe("name-only never attaches to an email-bearing entity via a tombstone (H4)", () => {
+    it("creates a new name-only entity instead of following a merge pointer into an email row", async () => {
+      // Email-bearing canonical B.
+      const b = await resolveEntity({ userId, name: "Alex Kim", email: "alex@corp-h4.test" }, db);
+      // Email-less tombstone A that points at B (simulating an admin merge).
+      const [a] = await db
+        .insert(entities)
+        .values({
+          userId,
+          kind: "person",
+          displayName: "Alex Kim",
+          canonicalEmail: null,
+          aliases: ["Alex Kim"],
+          metadata: {},
+          mergedIntoEntityId: b.id,
+        })
+        .returning();
+      expect(a.mergedIntoEntityId).toBe(b.id);
+
+      // Name-only resolve for "Alex Kim" must NOT return B (an email entity).
+      const resolved = await resolveEntity({ userId, name: "Alex Kim", email: null }, db);
+      expect(resolved.id).not.toBe(b.id);
+      expect(resolved.canonicalEmail).toBeNull();
+    });
+  });
+
+  describe("company domain uniqueness under concurrency (M7)", () => {
+    it("collapses concurrent inserts of the same domain to a single row", async () => {
+      const [c1, c2, c3] = await Promise.all([
+        resolveCompany({ userId, domain: "concurrent-co.test" }, db),
+        resolveCompany({ userId, domain: "concurrent-co.test" }, db),
+        resolveCompany({ userId, domain: "concurrent-co.test" }, db),
+      ]);
+      expect(c1.id).toBe(c2.id);
+      expect(c2.id).toBe(c3.id);
+      const rows = await db
+        .select()
+        .from(entities)
+        .where(and(eq(entities.userId, userId), eq(entities.kind, "company")));
+      const matching = rows.filter(
+        (r: { metadata: Record<string, unknown> }) => r.metadata?.domain === "concurrent-co.test",
+      );
+      expect(matching.length).toBe(1);
+    });
+  });
 });

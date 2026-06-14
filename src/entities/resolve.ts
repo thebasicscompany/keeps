@@ -88,24 +88,49 @@ export const FREEMAIL_DOMAINS = new Set<string>([
 export function normalizeEmail(raw: string | null | undefined): string | null {
   if (!raw) return null;
 
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return null;
+  let s = raw.trim();
+  if (!s) return null;
 
-  const atIdx = trimmed.indexOf("@");
-  if (atIdx <= 0) return null; // no @ or @ at start
+  // Unwrap a display-name form: "Jane <jane@acme.com>" → "jane@acme.com".
+  // Take the LAST <...> group (the addr-spec) so "A <B> <real@x.com>" still works.
+  const lt = s.lastIndexOf("<");
+  const gt = s.lastIndexOf(">");
+  if (lt >= 0 && gt > lt) {
+    s = s.slice(lt + 1, gt).trim();
+  }
 
-  const local = trimmed.slice(0, atIdx);
-  const domain = trimmed.slice(atIdx + 1);
+  s = s.toLowerCase();
+  if (!s) return null;
 
+  // Reject forms we cannot losslessly normalize as a MERGE KEY. A false merge is the
+  // cardinal sin, so anything ambiguous (quoted local parts, embedded whitespace/commas,
+  // angle brackets, or anything other than exactly one '@') is treated as un-normalizable
+  // (returns null). The caller then routes a *supplied-but-unnormalizable* email to a
+  // dedicated path that NEVER name-matches (see resolveEntity), instead of silently
+  // collapsing two distinct addresses. Quoted-local addresses like `"a@b"@x.com` are the
+  // classic false-merge trap this guards against.
+  if (/["'()\s,;:<>\\]/.test(s)) return null;
+  if ((s.match(/@/g) || []).length !== 1) return null;
+
+  const atIdx = s.indexOf("@");
+  if (atIdx <= 0) return null; // empty local
+
+  let local = s.slice(0, atIdx);
+  const domain = s.slice(atIdx + 1);
+
+  // Domain sanity: must contain a dot, no leading/trailing/double dots, and only the
+  // characters a real (incl. punycode/IDN-as-xn--) domain uses. This also rejects the
+  // `gmail.com>`-style junk that would otherwise bypass the freemail blocklist.
   if (!domain || !domain.includes(".")) return null;
+  if (domain.startsWith(".") || domain.endsWith(".") || domain.includes("..")) return null;
+  if (!/^[a-z0-9.-]+$/.test(domain)) return null;
 
-  // Strip +tag from local part
+  // Strip +tag from the local part ONLY.
   const plusIdx = local.indexOf("+");
-  const normalizedLocal = plusIdx >= 0 ? local.slice(0, plusIdx) : local;
+  if (plusIdx >= 0) local = local.slice(0, plusIdx);
+  if (!local) return null; // e.g. "+sales@acme.com" → empty local → un-normalizable
 
-  if (!normalizedLocal) return null;
-
-  return `${normalizedLocal}@${domain}`;
+  return `${local}@${domain}`;
 }
 
 /**
@@ -231,9 +256,66 @@ export async function resolveEntity(input: ResolveEntityInput, db?: Db): Promise
 
   if (normalizedEmail) {
     return resolveByEmail({ userId, name, normalizedEmail }, database);
-  } else {
-    return resolveByNameOnly({ userId, name }, database);
   }
+
+  // An email was SUPPLIED but could not be safely normalized into a merge key (quoted
+  // local part, empty local after +strip like "+sales@acme.com", junk domain, etc.).
+  // We must NOT fall through to name-only matching: two distinct un-normalizable addresses
+  // sharing a display name would then false-merge. Route to a dedicated path that keys on
+  // the raw address and NEVER name-matches.
+  const rawEmail = email?.trim().toLowerCase();
+  if (rawEmail) {
+    return resolveByUnnormalizableEmail({ userId, name, rawEmail }, database);
+  }
+
+  return resolveByNameOnly({ userId, name }, database);
+}
+
+/**
+ * A supplied email we could not normalize. Find-or-create keyed on the raw address stored
+ * in metadata.unresolvedEmail (so repeats of the SAME malformed address dedupe, but two
+ * DISTINCT malformed addresses never collapse). canonicalEmail stays NULL — this is not a
+ * trustworthy merge key. NEVER name-matches.
+ */
+async function resolveByUnnormalizableEmail(
+  { userId, name, rawEmail }: { userId: string; name: string | null; rawEmail: string },
+  db: Db,
+): Promise<Entity> {
+  const [existing] = await db
+    .select()
+    .from(entities)
+    .where(
+      and(
+        eq(entities.userId, userId),
+        eq(entities.kind, "person"),
+        isNull(entities.canonicalEmail),
+        sql`${entities.metadata}->>'unresolvedEmail' = ${rawEmail}`,
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    const canonical = await followMergeChain(existing, db);
+    return touchEntitySeen(canonical, name, db);
+  }
+
+  const [inserted] = await db
+    .insert(entities)
+    .values({
+      userId,
+      kind: "person",
+      displayName: name?.trim() || rawEmail,
+      canonicalEmail: null,
+      aliases: name?.trim() ? [name.trim()] : [],
+      metadata: { unresolvedEmail: rawEmail },
+    })
+    .returning();
+
+  if (!inserted) {
+    throw new Error(`resolveEntity: unresolvable-email insert returned no row for ${rawEmail}`);
+  }
+
+  return inserted;
 }
 
 async function resolveByEmail(
@@ -300,7 +382,10 @@ async function resolveByEmail(
     );
   }
 
-  return raced;
+  // Honor the "always return the canonical row" contract even on the race path: the winner
+  // could already have been merged.
+  const canonical = await followMergeChain(raced, db);
+  return touchEntitySeen(canonical, name, db);
 }
 
 async function resolveByNameOnly(
@@ -335,12 +420,18 @@ async function resolveByNameOnly(
       );
 
     if (matches.length === 1) {
-      // Exactly one match — safe to return it (follow merge chain first)
       const canonical = await followMergeChain(matches[0], db);
-      return touchEntitySeen(canonical, nameTrimmed, db);
+      // A name-only resolve must NEVER attach to an entity that HAS an email — even if the
+      // matched email-less row was merged into one that does. Following the tombstone here
+      // would let "Alex Kim" (no email) bind to alex@corp.com purely on name. Guard it:
+      // if the canonical row carries an email, treat as no match and create a new name-only
+      // entity instead.
+      if (canonical.canonicalEmail === null) {
+        return touchEntitySeen(canonical, nameTrimmed, db);
+      }
     }
 
-    // Zero or more-than-one match → ambiguous. Fall through to create new.
+    // Zero, ambiguous (>1), or a match that resolved to an email-bearing entity → CREATE NEW.
   }
 
   // Create a new name-only entity (or a truly anonymous one if name is blank)
@@ -401,7 +492,12 @@ export async function resolveCompany(
     return touchEntitySeen(canonical, null, database);
   }
 
-  // Create new company entity
+  // Create new company entity. The partial unique index
+  // `entities_user_company_domain_unique` (user_id, (metadata->>'domain')) WHERE kind='company'
+  // is the arbiter — onConflictDoNothing makes concurrent inserts of the same domain
+  // collapse to one row instead of duplicating. (No target columns: an expression partial
+  // index can't be named as a column-list arbiter, and the email partial index can't fire
+  // here because canonicalEmail is NULL, so a bare DO NOTHING is safe.)
   const newEntity: NewEntity = {
     userId,
     kind: "company",
@@ -411,13 +507,30 @@ export async function resolveCompany(
     metadata: { domain: domainLower },
   };
 
-  const [inserted] = await database.insert(entities).values(newEntity).returning();
+  const [inserted] = await database.insert(entities).values(newEntity).onConflictDoNothing().returning();
 
-  if (!inserted) {
-    throw new Error(`resolveCompany: insert returned no row for domain=${domainLower}`);
+  if (inserted) {
+    return inserted;
   }
 
-  return inserted;
+  // Lost the race — re-select the winning row and return its canonical.
+  const [raced] = await database
+    .select()
+    .from(entities)
+    .where(
+      and(
+        eq(entities.userId, userId),
+        eq(entities.kind, "company"),
+        sql`${entities.metadata}->>'domain' = ${domainLower}`,
+      ),
+    )
+    .limit(1);
+
+  if (!raced) {
+    throw new Error(`resolveCompany: insert raced but re-select found nothing for domain=${domainLower}`);
+  }
+
+  return touchEntitySeen(await followMergeChain(raced, database), null, database);
 }
 
 /**

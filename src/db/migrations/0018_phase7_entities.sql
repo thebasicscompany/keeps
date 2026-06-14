@@ -68,6 +68,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS "entities_user_canonical_email_unique"
 CREATE INDEX IF NOT EXISTS "entities_user_kind_idx" ON "entities" ("user_id", "kind");
 CREATE INDEX IF NOT EXISTS "entities_merged_into_idx" ON "entities" ("merged_into_entity_id");
 
+-- Company entities are keyed on metadata->>'domain' (canonical_email stays NULL for them).
+-- This partial unique index makes domain the merge arbiter for companies — one canonical
+-- company per (user, domain) — and lets resolveCompany use ON CONFLICT DO NOTHING so
+-- concurrent inserts of the same domain collapse to one row instead of duplicating.
+CREATE UNIQUE INDEX IF NOT EXISTS "entities_user_company_domain_unique"
+  ON "entities" ("user_id", (("metadata" ->> 'domain')))
+  WHERE "kind" = 'company';
+
 -- ============================================================================
 -- 3. loops: nullable FK columns linking a loop to its owner / requester entity.
 --    ON DELETE SET NULL — KEEP owner_text/requester_text as the provenance fallback so a

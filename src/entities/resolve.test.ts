@@ -62,6 +62,43 @@ describe("normalizeEmail", () => {
     // "+" before the @ means local = "" after split
     expect(normalizeEmail("+@domain.com")).toBeNull();
   });
+
+  // --- Hardening (audit findings C1/C2/H3): un-normalizable forms must return null so the
+  //     caller routes them away from name-matching, never collapsing distinct addresses. ---
+
+  it("returns null for quoted local parts that would mis-split on an embedded @ (C1)", () => {
+    // Both of these RFC-valid-but-exotic addresses previously collapsed to the same canonical.
+    expect(normalizeEmail('"foo+bar@corp"@example.com')).toBeNull();
+    expect(normalizeEmail('"foo@corp"@example.com')).toBeNull();
+  });
+
+  it("returns null when the local part is empty after +strip (C2: +sales@acme.com)", () => {
+    expect(normalizeEmail("+sales@acme.com")).toBeNull();
+    expect(normalizeEmail("+support@acme.com")).toBeNull();
+  });
+
+  it("unwraps a display-name form to the addr-spec (H3)", () => {
+    expect(normalizeEmail("Jane <jane@acme.com>")).toBe("jane@acme.com");
+    expect(normalizeEmail("Jane Doe <Jane.Doe@ACME.com>")).toBe("jane.doe@acme.com");
+  });
+
+  it("does not let a display-name wrapper smuggle junk into the domain (H3)", () => {
+    // Previously "...@gmail.com>" bypassed the freemail blocklist; now it normalizes cleanly.
+    expect(normalizeEmail("Jane <jane@gmail.com>")).toBe("jane@gmail.com");
+    expect(companyDomainFromEmail(normalizeEmail("Jane <jane@gmail.com>"))).toBeNull();
+  });
+
+  it("returns null for more than one @ or embedded whitespace/commas", () => {
+    expect(normalizeEmail("a@b@acme.com")).toBeNull();
+    expect(normalizeEmail("jane doe@acme.com")).toBeNull();
+    expect(normalizeEmail("jane@acme.com, john@acme.com")).toBeNull();
+  });
+
+  it("returns null for malformed domains (leading/trailing/double dots)", () => {
+    expect(normalizeEmail("jane@.acme.com")).toBeNull();
+    expect(normalizeEmail("jane@acme.com.")).toBeNull();
+    expect(normalizeEmail("jane@acme..com")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
