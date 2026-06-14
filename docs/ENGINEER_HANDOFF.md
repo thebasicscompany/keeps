@@ -143,12 +143,15 @@ These are stored "Sensitive" in Vercel prod and can't be exported programmatical
 
 Two adversarial Codex audits ran during the sprint: a code pass caught + fixed two real false-merge edges in the resolver; a design pass produced the refinements in **plan §6b** (binding). D1's eval then caught a third false-merge path (same-thread distinct-deliverable) which the **discriminator guard** in `reconcile.ts` now closes. Don't re-litigate §6b.
 
-### Remaining (ops — needs Arav's go-ahead; irreversible)
+### Remaining (ops)
 
-1. Apply `0018` + `0019` to **prod** by hand via `psql` (prod `DATABASE_URL` from Doppler `keeps/prd`). 0019 is non-transactional — run it outside a tx.
-2. Run the entity backfill against prod: `DATABASE_URL=<prod> pnpm tsx scripts/backfill-entities.ts` (idempotent; `--dry-run` first).
-3. `vercel deploy --prod --yes` (Inngest auto-syncs).
-4. Live UAT: CC a fresh email referencing a prior commitment → it should UPDATE the existing loop (not dup); a counterparty "done" reply → CLOSE the waiting-on loop; "where's <entity> at?" → synthesized status; an uncertain match → a YES/NO ask whose reply merges or keeps-separate.
+**✅ DONE (2026-06-14):**
+- `0018` + `0019` applied to **prod** (AWS RDS). Verified: `entities`/`loop_entities` tables, `pg_trgm`+`fuzzystrmatch`, `loop_status='suppressed'`, the reconciliation `loop_event_type`s, and the `loops` entity FK columns all present.
+- **Entity backfill run against prod** — 11 loops → 12 entities (8 persons, 4 companies), 40 loop links, 0 failures. Re-run is idempotent (processes 0, no dupes). The graph is populated.
+
+**⏳ YOURS (deploy + verify):**
+1. **`vercel deploy --prod --yes`** — the migrated schema is additive and invisible to the currently-deployed (pre-Phase-7) code, so the new reconciliation/entity behavior is NOT live until this deploy. Inngest auto-syncs on deploy. (Optional but cheap: re-run `scripts/backfill-entities.ts` once after deploy to link any loops created in the migrate→deploy gap — it's idempotent.)
+2. **Live UAT:** CC a fresh email referencing a prior commitment → it should UPDATE the existing loop (not a dup); a counterparty "done" reply → CLOSE the waiting-on loop; "where's <entity> at?" → a synthesized status; an uncertain match → a YES/NO ask whose reply merges (YES) or keeps-separate (NO). Live email is manual or via the `/api/email/inbound` shared-secret fallback (Composio Gmail MCP is blocked). Check `/admin/reconciliations` to see the decisions + one-sentence provenance.
 
 ### One known follow-up (not a blocker)
 
