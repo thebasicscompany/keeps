@@ -69,7 +69,10 @@ import { sendSystemEmail } from "@/email/system-send";
 import { getEmailSender } from "@/email/sender-factory";
 import {
   buildNudgeReplyTo,
+  parseNudgeMailboxHash,
+  DrizzleOutboundEmailStore,
   type EmailSender,
+  type SendResult,
 } from "@/email/outbound";
 import {
   reconcileConnectorAccounts,
@@ -570,10 +573,10 @@ export const handleConnectorCommandFunction = inngest.createFunction(
     });
 
     // ── (e) Gate by reversibility: send the right email, then waitForEvent.
-    await step.run("send-approval-email", async () => {
+    const approvalEmail = await step.run("send-approval-email", async () => {
       const env = getOptionalEnv();
       const ownerEmail = await new DrizzleOwnerResolver().findOwnerEmail(userId);
-      if (!ownerEmail) return;
+      if (!ownerEmail) return null;
 
       const action =
         frozenPayload.kind === "slack_dm"
@@ -600,8 +603,47 @@ export const handleConnectorCommandFunction = inngest.createFunction(
       // Reply-To plus-routes a plaintext "approve"/"cancel"/"edit" back to the
       // approval reply handler (the nudge mailbox-hash pattern from handle-approval).
       const replyTo = buildNudgeReplyTo(created.approvalId, env.POSTMARK_REPLY_TO_BASE);
-      await sendApprovalReply(ownerEmail, subject, textBody, replyTo, getEmailSender(), html);
+      const sender = getEmailSender();
+      const result = await sendApprovalReply(ownerEmail, subject, textBody, replyTo, sender, html);
+
+      // Suppression guard refused the send (non-active outbound user) — nothing to record.
+      if (result.skipped) return null;
+
+      return {
+        provider: sender.provider,
+        providerMessageId: result.providerMessageId,
+        ownerEmail,
+        subject,
+        textBody,
+        replyTo,
+      };
     });
+
+    // ── (e2) Record the approval email to `outbound_emails`. Without this the
+    // approve/cancel link (which carries the token) is surfaced NOWHERE in dev —
+    // the DevRecordingSender is a no-op — so a hard approval (Slack DM, or a
+    // calendar event with attendees) can never be decided. Separate step so a
+    // record retry never re-sends. Connector approvals are not nudges, so the row
+    // carries nudgeId=null; the plus-routed reply hash is parsed from Reply-To.
+    if (approvalEmail) {
+      await step.run("record-connector-approval-email", async () => {
+        await new DrizzleOutboundEmailStore().recordSend({
+          id: randomUUID(),
+          userId,
+          nudgeId: null,
+          provider: approvalEmail.provider,
+          providerMessageId: approvalEmail.providerMessageId,
+          toEmail: approvalEmail.ownerEmail,
+          subject: approvalEmail.subject,
+          textBody: approvalEmail.textBody,
+          headers: {},
+          replyTo: approvalEmail.replyTo,
+          inReplyTo: null,
+          referencesHeader: null,
+          mailboxHash: parseNudgeMailboxHash(approvalEmail.replyTo),
+        });
+      });
+    }
 
     const timeout = reversibility === "reversible" ? CONFIRM_WINDOW_TIMEOUT : HARD_APPROVAL_TIMEOUT;
     // CRITICAL: `match: "data.approvalId"` would compare the incoming approval.received
@@ -766,8 +808,8 @@ async function sendApprovalReply(
   replyTo: string,
   sender: EmailSender,
   htmlBody?: string,
-): Promise<void> {
-  await sender.send({
+): Promise<SendResult> {
+  return sender.send({
     userId: null,
     nudgeId: null,
     to,

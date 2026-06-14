@@ -203,6 +203,32 @@ describe("detectInsightCommand", () => {
     expect(detectInsightCommand("status")).toEqual({ kind: "insights" });
   });
 
+  it("natural-language status queries → entity with entityCandidate", () => {
+    expect(detectInsightCommand("where do things stand with Acme?")).toEqual({
+      kind: "entity",
+      entityCandidate: "Acme",
+    });
+    expect(detectInsightCommand("where are we with the Globex deal?")).toEqual({
+      kind: "entity",
+      entityCandidate: "the Globex deal",
+    });
+    expect(detectInsightCommand("where is Maya at")).toEqual({ kind: "entity", entityCandidate: "Maya" });
+    expect(detectInsightCommand("what's the status of Acme?")).toEqual({
+      kind: "entity",
+      entityCandidate: "Acme",
+    });
+    expect(detectInsightCommand("status on Globex")).toEqual({ kind: "entity", entityCandidate: "Globex" });
+    expect(detectInsightCommand("any update on Priya?")).toEqual({ kind: "entity", entityCandidate: "Priya" });
+    expect(detectInsightCommand("how's the Acme rollout going?")).toEqual({
+      kind: "entity",
+      entityCandidate: "the Acme rollout",
+    });
+    expect(detectInsightCommand("what's happening with Globex?")).toEqual({
+      kind: "entity",
+      entityCandidate: "Globex",
+    });
+  });
+
   it("non-insight body → null", () => {
     expect(detectInsightCommand("I will send the contract Tuesday")).toBeNull();
     expect(detectInsightCommand("Can you ping Maya?")).toBeNull();

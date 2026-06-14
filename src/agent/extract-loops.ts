@@ -127,12 +127,17 @@ async function extractLoopsWithModel(
     schema: loopExtractionResultSchema,
     schemaName: "KeepsLoopExtraction",
     system:
-      "Extract private open loops from a user-provided email. Return only loops supported by source evidence. Distinguish explicit commitments from inferred next steps. Ask a clarifying question when ownership, due date, or intent is ambiguous.",
+      "Extract private open loops from a user-provided email. Return only loops supported by source evidence. Distinguish explicit commitments from inferred next steps. Ask a clarifying question when ownership, due date, or intent is ambiguous. " +
+      "For each loop's participants, copy the email address verbatim from the Participants line when the person appears there. For ownerText and requesterText, use the participant's exact name or email address from the Participants line (or \"me\" for the email's author) — do NOT invent descriptive labels like \"X's team\" or \"X / Company\".",
     prompt: [
       `Subject: ${email.subject}`,
       `From: ${email.from.name ?? email.from.email} <${email.from.email}>`,
       `Participants: ${extractionBody.participants
-        .map((participant) => participant.name ?? participant.email)
+        .map((participant) =>
+          participant.name && participant.email.includes("@")
+            ? `${participant.name} <${participant.email}>`
+            : participant.email,
+        )
         .join(", ")}`,
       "",
       extractionBody.normalizedBody,
@@ -140,7 +145,50 @@ async function extractLoopsWithModel(
     ].join("\n"),
   });
 
-  return loopExtractionResultSchema.parse(result.object);
+  // Deterministic safety net: the model may omit a participant's email even
+  // though the address is on the email (it is shown in the Participants line).
+  // Backfill it from the header participants by exact name match so entity
+  // linking gets the SAFE merge key (email) and company entities can form.
+  // Email is the only auto-merge key (resolve.ts), so backfilling a
+  // header-confirmed address can never produce a false merge.
+  return backfillParticipantEmails(
+    loopExtractionResultSchema.parse(result.object),
+    extractionBody.participants,
+  );
+}
+
+/**
+ * Backfill missing participant emails from the email's header participants.
+ * Exported for direct unit testing (no model call needed).
+ */
+export function backfillParticipantEmails(
+  result: LoopExtractionResult,
+  headerParticipants: ExtractionEmailBody["participants"],
+): LoopExtractionResult {
+  const emailByName = new Map<string, string>();
+  for (const hp of headerParticipants) {
+    const name = hp.name?.trim().toLowerCase();
+    if (name && hp.email.includes("@") && !emailByName.has(name)) {
+      emailByName.set(name, hp.email);
+    }
+  }
+
+  if (emailByName.size === 0) return result;
+
+  return {
+    ...result,
+    loops: result.loops.map((loop) => ({
+      ...loop,
+      participants: loop.participants.map((participant) => {
+        const hasEmail = participant.email?.includes("@") ?? false;
+        if (!hasEmail && participant.name) {
+          const email = emailByName.get(participant.name.trim().toLowerCase());
+          if (email) return { ...participant, email };
+        }
+        return participant;
+      }),
+    })),
+  };
 }
 
 function extractLoopsDeterministically(

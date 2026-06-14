@@ -84,6 +84,12 @@ export async function backfillEntities(opts: BackfillOptions): Promise<BackfillR
   // Per-user selfEmail cache: userId → email or null
   const selfEmailCache = new Map<string, string | null>();
 
+  // The assistant's own capture/reply addresses — excluded from the entity graph.
+  const env = getEnv();
+  const agentEmails = [env.POSTMARK_FROM_ADDRESS, env.POSTMARK_REPLY_TO_BASE].filter(
+    (value): value is string => Boolean(value),
+  );
+
   const result: BackfillResult = { processed: 0, skipped: 0, failed: 0 };
 
   // Cursor-based pagination on (createdAt ASC, id ASC).
@@ -210,6 +216,7 @@ export async function backfillEntities(opts: BackfillOptions): Promise<BackfillR
             participants,
             sender,
             selfEmail,
+            agentEmails,
           },
           db,
         );

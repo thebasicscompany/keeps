@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { extractLoops, buildReconciliationPrompt } from "@/agent/extract-loops";
-import { loopExtractionResultSchema } from "@/agent/schemas";
+import { extractLoops, buildReconciliationPrompt, backfillParticipantEmails } from "@/agent/extract-loops";
+import { loopExtractionResultSchema, type LoopExtractionResult } from "@/agent/schemas";
 import { launchThreadFixture } from "@/agent/fixtures/launch-thread";
 import { bccLikePostmarkFixture, forwardLikePostmarkFixture } from "@/email/fixtures/postmark";
 import { normalizePostmarkInbound, type NormalizedEmail } from "@/email/normalize";
@@ -170,5 +170,63 @@ describe("action policy", () => {
     expect(requiresApproval("send_slack_message")).toBe(true);
     expect(requiresApproval("create_private_loop")).toBe(false);
     expect(() => assertApprovalAllowed("send_slack_message")).toThrow(/requires an approval_request/);
+  });
+});
+
+describe("backfillParticipantEmails", () => {
+  const baseLoop = {
+    summary: "Send the report",
+    kind: "commitment" as const,
+    status: "open" as const,
+    basis: "explicit_commitment" as const,
+    ownerText: null,
+    requesterText: null,
+    dueDateText: null,
+    dueAt: null,
+    nextCheckAt: null,
+    dueDateUncertainty: "missing" as const,
+    confidence: 0.9,
+    explicitness: "explicit" as const,
+    participants: [] as { name: string | null; email: string | null }[],
+    source: { quote: "q", startOffset: null, endOffset: null },
+    ambiguityFlags: [] as string[],
+    reconcilesLoopRef: null,
+    reconcileAction: "create" as const,
+    reconcileConfidence: 0,
+    reconcileEvidence: null,
+  };
+
+  function resultWith(
+    participants: { name: string | null; email: string | null }[],
+  ): LoopExtractionResult {
+    return {
+      intent: "capture",
+      emailSummary: "summary",
+      loops: [{ ...baseLoop, participants }],
+      clarifyingQuestion: null,
+      suggestedPrivateReply: "ok",
+    };
+  }
+
+  it("fills a missing email from the header participant with the same name (→ company can form)", () => {
+    const out = backfillParticipantEmails(resultWith([{ name: "Priya Nair", email: null }]), [
+      { name: "Priya Nair", email: "priya@acme.com" },
+    ]);
+    expect(out.loops[0]?.participants[0]).toEqual({ name: "Priya Nair", email: "priya@acme.com" });
+  });
+
+  it("never overwrites an email the model already supplied", () => {
+    const out = backfillParticipantEmails(
+      resultWith([{ name: "Priya Nair", email: "priya.personal@gmail.com" }]),
+      [{ name: "Priya Nair", email: "priya@acme.com" }],
+    );
+    expect(out.loops[0]?.participants[0]?.email).toBe("priya.personal@gmail.com");
+  });
+
+  it("leaves a name-only participant untouched when no header name matches", () => {
+    const out = backfillParticipantEmails(resultWith([{ name: "Stranger", email: null }]), [
+      { name: "Priya Nair", email: "priya@acme.com" },
+    ]);
+    expect(out.loops[0]?.participants[0]?.email).toBeNull();
   });
 });

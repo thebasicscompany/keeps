@@ -33,6 +33,13 @@ export type LinkLoopEntitiesInput = {
   sender?: LinkParticipant | null;
   /** The Keeps user's own email. Pool members matching this are skipped (self-linking). */
   selfEmail?: string | null;
+  /**
+   * The assistant's own capture/reply addresses (POSTMARK_FROM_ADDRESS /
+   * POSTMARK_REPLY_TO_BASE). Pool members matching any of these are skipped —
+   * the agent is the tool, never a counterparty, and must not pollute the graph
+   * (as a person or, via its domain, a company).
+   */
+  agentEmails?: string[];
 };
 
 type Db = ReturnType<typeof getDb>;
@@ -144,6 +151,15 @@ export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): P
   // Step 1: Build the deduplicated participant pool
   // -------------------------------------------------------------------------
 
+  // Normalized set of the assistant's own addresses (capture/reply mailboxes).
+  // normalizeEmail strips +tags, so the plus-routed nudge mailbox
+  // (agent+n_<id>@domain) collapses onto its base address here.
+  const agentEmailSet = new Set<string>();
+  for (const agentEmail of input.agentEmails ?? []) {
+    const normalized = normalizeEmail(agentEmail);
+    if (normalized) agentEmailSet.add(normalized);
+  }
+
   const raw: LinkParticipant[] = [
     ...input.participants,
     ...(input.sender ? [input.sender] : []),
@@ -160,6 +176,10 @@ export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): P
 
     // Skip self
     if (isSelf(p, selfEmail)) continue;
+
+    // Skip the assistant's own capture/reply address (never a counterparty).
+    const normalizedEmail = normalizeEmail(p.email);
+    if (normalizedEmail && agentEmailSet.has(normalizedEmail)) continue;
 
     // Dedup
     if (seen.has(key)) continue;
@@ -274,12 +294,19 @@ async function resolveRoleEntity(args: {
 
   const textTrimmed = roleText!.trim();
 
-  // Try to match against a pool member by name or email
+  // Try to match against a pool member by name or email. The model is asked to
+  // emit ownerText/requesterText as a participant's exact name OR email, so a
+  // match here reuses the email-keyed entity instead of forking a name-only
+  // duplicate. Email comparison is normalized (case/+tags) — email is the only
+  // auto-merge key, so it cannot cause a false merge.
+  const roleEmailNormalized = normalizeEmail(textTrimmed);
   let matchedEntityId: string | null = null;
 
   for (const p of pool) {
     const nameMatch = p.name?.trim().toLowerCase() === textTrimmed.toLowerCase();
-    const emailMatch = p.email?.trim().toLowerCase() === textTrimmed.toLowerCase();
+    const emailMatch =
+      p.email?.trim().toLowerCase() === textTrimmed.toLowerCase() ||
+      (roleEmailNormalized !== null && normalizeEmail(p.email) === roleEmailNormalized);
 
     if (nameMatch || emailMatch) {
       const key = dedupKey(p);

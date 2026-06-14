@@ -89,6 +89,29 @@ export function detectInsightCommand(
     return { kind: "entity", entityCandidate: entityStatusMatch[1] };
   }
 
+  // entity D: natural-language status queries. These are the phrasings people
+  // actually type ("where do things stand with Acme?", "what's the status of
+  // Globex?", "any update on Priya?"). The captured group is the entity
+  // candidate; classifyInsightCommand resolves it (and returns "unknown" if it
+  // matches no known person/company, so a non-entity question still falls
+  // through to the question branch).
+  const NL_ENTITY_PATTERNS: RegExp[] = [
+    /^where\s+do\s+(?:things|we)\s+stand\s+(?:with|on)\s+(.+?)\??$/i,
+    /^where\s+are\s+we\s+(?:with|on)\s+(.+?)\??$/i,
+    /^where\s+(?:is|are)\s+(.+?)\s+at\??$/i,
+    /^what(?:'s|s| is)\s+the\s+status\s+(?:of|on|with|for)\s+(.+?)\??$/i,
+    /^status\s+(?:of|on|with|for)\s+(.+?)\??$/i,
+    /^(?:any\s+)?updates?\s+(?:on|with|for|about)\s+(.+?)\??$/i,
+    /^how(?:'s|s| is| are)\s+(.+?)\s+(?:going|coming\s+along|progressing|looking)\??$/i,
+    /^what(?:'s|s| is)\s+(?:happening|going\s+on)\s+with\s+(.+?)\??$/i,
+  ];
+  for (const pattern of NL_ENTITY_PATTERNS) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) {
+      return { kind: "entity", entityCandidate: match[1].trim() };
+    }
+  }
+
   return null;
 }
 

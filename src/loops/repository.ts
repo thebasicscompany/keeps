@@ -12,6 +12,7 @@ import {
 } from "@/db/schema";
 import type { LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
+import { getOptionalEnv } from "@/config/env";
 import { linkLoopEntities } from "@/entities/link";
 import { loadExtractionContext } from "@/agent/extraction-context";
 import { normalizeEmail } from "@/entities/resolve";
@@ -210,6 +211,11 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         console.error("[entity-link] selfEmail lookup failed; proceeding without it", err);
       }
 
+      const env = getOptionalEnv();
+      const agentEmails = [env.POSTMARK_FROM_ADDRESS, env.POSTMARK_REPLY_TO_BASE].filter(
+        (value): value is string => Boolean(value),
+      );
+
       for (const job of linkJobs) {
         try {
           await linkLoopEntities({
@@ -220,6 +226,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
             participants: job.candidate.participants,
             sender: input.email.normalized.from,
             selfEmail,
+            agentEmails,
           });
         } catch (err) {
           console.error(`[entity-link] failed for loop ${job.loopId}; left unlinked`, err);

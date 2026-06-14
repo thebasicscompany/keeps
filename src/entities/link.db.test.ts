@@ -197,6 +197,51 @@ describe.skipIf(!TEST_DATABASE_URL)("linkLoopEntities (DB integration)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // (a2) The assistant's own capture/reply address is EXCLUDED from the graph
+  // ---------------------------------------------------------------------------
+
+  it("(a2) an agent capture/reply address is never linked as a person or company", async () => {
+    const loopId = await insertLoop();
+    const agentBase = `agent-${RUN_ID}@keeps-agent-test.ai`;
+
+    await linkLoopEntities(
+      {
+        userId,
+        loopId,
+        ownerText: null,
+        requesterText: null,
+        // The agent appears in both the plain capture address AND its plus-routed
+        // nudge mailbox — both must collapse onto the base and be excluded.
+        participants: [
+          { name: "Keeps", email: agentBase },
+          { name: "Keeps", email: `agent-${RUN_ID}+n_00000000-0000-0000-0000-000000000001@keeps-agent-test.ai` },
+          { name: "Real Person", email: `realperson-${RUN_ID}@othercorp-link-test.com` },
+        ],
+        agentEmails: [agentBase],
+      },
+      db,
+    );
+
+    // No entity (person OR company) should exist for the agent's domain.
+    const allEntities = await db
+      .select()
+      .from(entities)
+      .where(eq(entities.userId, userId));
+    const agentLeaked = allEntities.some((e: schema.Entity) => {
+      const domain = (e.metadata as Record<string, unknown>)?.domain;
+      return e.canonicalEmail === agentBase || domain === "keeps-agent-test.ai";
+    });
+    expect(agentLeaked).toBe(false);
+
+    // The real counterparty still links (person + company), proving the filter
+    // is targeted and not over-broad.
+    const otherCorp = allEntities.some(
+      (e: schema.Entity) => (e.metadata as Record<string, unknown>)?.domain === "othercorp-link-test.com",
+    );
+    expect(otherCorp).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
   // (b) Freemail participant → links ONLY the person, NO company
   // ---------------------------------------------------------------------------
 
