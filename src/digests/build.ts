@@ -102,6 +102,23 @@ export interface DigestModel {
    * Count of DISTINCT emailThreadId values among the active loops.
    */
   distinctActiveThreads: number;
+  /**
+   * Phase 7 AR-9: counts of loops auto-reconciled since the last digest.
+   * Optional — omit when no reconciliation has occurred (absent ⇒ no line
+   * rendered in the digest email).
+   *
+   * TODO(Phase 7 wiring): source this count from loop_events at the digest
+   * cron call site (e.g. query reconciled events since the user's last digest
+   * sent_at and pass the tallies here). See src/admin/reconciliations.ts for
+   * the listRecentReconciliations helper. Do NOT modify src/loops/* to wire
+   * this — do it in the digest cron/service layer.
+   */
+  autoReconciled?: {
+    /** Loops auto-advanced (action='update') by an incoming reply. */
+    advanced: number;
+    /** Loops auto-closed (action='close') by an incoming reply. */
+    closed: number;
+  };
 }
 
 const SECTION_CAP = 5;
@@ -143,13 +160,18 @@ export interface BuildDigestInput {
   user: DigestUserInput;
   loops: DigestLoopInput[];
   now: Date;
+  /**
+   * Phase 7 AR-9: optional auto-reconciliation counts to surface in the digest.
+   * Absent ⇒ no reconciliation line rendered.
+   */
+  autoReconciled?: { advanced: number; closed: number };
 }
 
 /**
  * Build a DigestModel by categorizing loops into derived buckets.
  * All inputs are required; `now` must be injected (no implicit new Date()).
  */
-export function buildDigest({ user, loops, now }: BuildDigestInput): DigestModel {
+export function buildDigest({ user, loops, now, autoReconciled }: BuildDigestInput): DigestModel {
   const nowMs = now.getTime();
 
   // ---- Coverage counts (before any filtering/capping) ----
@@ -232,5 +254,6 @@ export function buildDigest({ user, loops, now }: BuildDigestInput): DigestModel
     recentlyDone: sortedRecentlyDone.slice(0, SECTION_CAP).map(toEntry),
     totalActiveLoops,
     distinctActiveThreads,
+    ...(autoReconciled !== undefined ? { autoReconciled } : {}),
   };
 }

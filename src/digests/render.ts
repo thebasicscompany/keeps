@@ -188,6 +188,18 @@ export function renderDigestEmail(
     }
   }
 
+  // ---- Phase 7 AR-9: auto-reconciliation summary line (optional) ----
+  if (model.autoReconciled !== undefined) {
+    const { advanced, closed } = model.autoReconciled;
+    const parts: string[] = [];
+    if (advanced > 0) parts.push(`${advanced} loop${advanced === 1 ? "" : "s"} advanced`);
+    if (closed > 0) parts.push(`${closed} closed`);
+    if (parts.length > 0) {
+      textLines.push(`🔁 ${parts.join(" and ")} automatically from replies.`);
+      textLines.push("");
+    }
+  }
+
   // ---- AR-9 capture prompt ----
   textLines.push("What else is on your plate? Reply and I'll track it.");
   textLines.push("");
@@ -280,6 +292,19 @@ function buildHtmlBody(
     }
     if (model.recentlyDone.length > 0) {
       renderHtmlSection("Recently done", model.recentlyDone, (e) => e.summary);
+    }
+  }
+
+  // ---- Phase 7 AR-9: auto-reconciliation summary line (optional) ----
+  if (model.autoReconciled !== undefined) {
+    const { advanced, closed } = model.autoReconciled;
+    const lineParts: string[] = [];
+    if (advanced > 0) lineParts.push(`${advanced} loop${advanced === 1 ? "" : "s"} advanced`);
+    if (closed > 0) lineParts.push(`${closed} closed`);
+    if (lineParts.length > 0) {
+      parts.push(
+        `<p style="color:#555;font-size:13px">🔁 ${esc(lineParts.join(" and "))} automatically from replies.</p>`,
+      );
     }
   }
 
