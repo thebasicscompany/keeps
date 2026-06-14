@@ -84,6 +84,18 @@ doppler secrets --only-names                         # list keys (never prints v
 
 `src/config/env.ts` is the canonical schema of every variable (all `.optional()` with sane defaults, so the app degrades gracefully when a key is absent). The keys you'll care about for Phase 7 work specifically: `DATABASE_URL` (local: `postgres://postgres:postgres@localhost:55433/keeps`) and `OPENAI_API_KEY` (only needed to exercise live model paths — tests don't need it). Everything else (Clerk, Postmark, Composio, Inngest, Sentry) is needed for the full app but not for entity/extraction unit work.
 
+### What's already in `keeps/dev` (provisioned for you)
+
+`doppler run --project keeps --config dev -- …` already injects these working values:
+`DATABASE_URL` (→ **local** `:55433`, deliberately — see the warning below), `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `OPENAI_MODEL`, `INNGEST_DEV`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `KEEPS_DEV_AUTH_SECRET`, `KEEPS_INBOUND_WEBHOOK_SECRET`, `POSTMARK_FROM_ADDRESS`, `POSTMARK_REPLY_TO_BASE`, `POSTMARK_MESSAGE_STREAM`.
+
+> ⚠️ **`DATABASE_URL` in `keeps/dev` points at your LOCAL Postgres on purpose.** The DB-gated tests CREATE and DELETE rows; pointing them at the prod database would corrupt production. Prod runs on **AWS RDS** (`keeps-prod.…us-east-1.rds.amazonaws.com`, `us-east-1`); only the lead applies prod migrations / runs the backfill there, by hand. Don't repoint your dev `DATABASE_URL` at prod.
+
+### Keys you must add yourself (vaulted — not auto-provisioned)
+
+These are stored "Sensitive" in Vercel prod and can't be exported programmatically, so they're **not** in `keeps/dev` yet. Get them from the respective dashboards (or ask Arav) and `doppler secrets set <KEY> --project keeps --config dev`:
+`OPENAI_API_KEY` (live LLM — tests don't need it), `POSTMARK_SERVER_TOKEN` (sending email), `CLERK_WEBHOOK_SIGNING_SECRET`, `COMPOSIO_API_KEY`, `COMPOSIO_WEBHOOK_SECRET`, `COMPOSIO_SLACK_AUTH_CONFIG_ID`, `COMPOSIO_GCAL_AUTH_CONFIG_ID`, `KEEPS_ADMIN_PROBE_SECRET`. (`COMPOSIO_*_TOOLKIT_VERSION` have code defaults; override only to bump.) **You can do all Phase-7 entity/extraction work — incl. the full DB-gated test suite — with zero of these**, since model paths have deterministic fallbacks; add `OPENAI_API_KEY` only when you want to exercise live extraction.
+
 **Never** echo a secret value in a shell/log/PR. Prod `DATABASE_URL` once leaked via a redaction miss — treat all values as toxic.
 
 ---
