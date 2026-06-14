@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import type { LoopCandidate, LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
+import { linkLoopEntities } from "@/entities/link";
 import type {
   LoopProcessingRepository,
   LoopToPersist,
@@ -99,6 +100,16 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     return this.db.transaction(async (tx) => {
       const persisted: PersistedLoop[] = [];
 
+      // Look up the Keeps user's own email once per transaction so we can pass
+      // it to linkLoopEntities as selfEmail, preventing the user from being
+      // linked as a participant in their own loops.
+      const [userRow] = await tx
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, input.email.userId))
+        .limit(1);
+      const selfEmail = userRow?.email ?? null;
+
       for (const candidate of input.loops) {
         const [evidence] = await tx
           .insert(sourceEvidence)
@@ -173,6 +184,21 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
             sourceEvidenceId: evidence.id,
           },
         });
+
+        // Phase 7 A3: wire entity linking into the capture path (atomic with loop creation).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await linkLoopEntities(
+          {
+            userId: input.email.userId,
+            loopId: loop.id,
+            ownerText: candidate.ownerText,
+            requesterText: candidate.requesterText,
+            participants: candidate.participants,
+            sender: input.email.normalized.from,
+            selfEmail,
+          },
+          tx as any,
+        );
 
         persisted.push(toPersistedLoop(loop, evidence.quote));
       }
