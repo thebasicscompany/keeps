@@ -93,7 +93,7 @@ doppler secrets --only-names                         # list keys (never prints v
 
 ### Keys you must add yourself (vaulted — not auto-provisioned)
 
-These are stored "Sensitive" in Vercel prod and can't be exported programmatically, so they're **not** in `keeps/dev` yet. Get them from the respective dashboards (or ask Arav) and `doppler secrets set <KEY> --project keeps --config dev`:
+These are stored "Sensitive" in Vercel prod and can't be exported programmatically, so they're **not** in `keeps/dev` yet. You're in the same Vercel org, so the source of truth is the **Vercel project `arav-bhardwajs-projects/keeps`** → Settings → Environment Variables (Production) — read the values there (or ask Arav), then `doppler secrets set <KEY> --project keeps --config dev`:
 `OPENAI_API_KEY` (live LLM — tests don't need it), `POSTMARK_SERVER_TOKEN` (sending email), `CLERK_WEBHOOK_SIGNING_SECRET`, `COMPOSIO_API_KEY`, `COMPOSIO_WEBHOOK_SECRET`, `COMPOSIO_SLACK_AUTH_CONFIG_ID`, `COMPOSIO_GCAL_AUTH_CONFIG_ID`, `KEEPS_ADMIN_PROBE_SECRET`. (`COMPOSIO_*_TOOLKIT_VERSION` have code defaults; override only to bump.) **You can do all Phase-7 entity/extraction work — incl. the full DB-gated test suite — with zero of these**, since model paths have deterministic fallbacks; add `OPENAI_API_KEY` only when you want to exercise live extraction.
 
 **Never** echo a secret value in a shell/log/PR. Prod `DATABASE_URL` once leaked via a redaction miss — treat all values as toxic.
