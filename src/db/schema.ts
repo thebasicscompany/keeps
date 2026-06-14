@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -169,6 +170,10 @@ export const outboundEmailStateEnum = pgEnum("outbound_email_state", [
   "complained",
   "suppressed",
 ]);
+
+// Phase 7: Entity graph (Context Engine)
+export const entityKindEnum = pgEnum("entity_kind", ["person", "company", "other"]);
+export const loopEntityRoleEnum = pgEnum("loop_entity_role", ["owner", "requester", "participant"]);
 
 export const users = pgTable(
   "users",
@@ -435,11 +440,16 @@ export const loops = pgTable(
     // Phase 3: nudge bookkeeping
     lastNudgedAt: timestamp("last_nudged_at", { withTimezone: true }),
     nudgeCount: integer("nudge_count").notNull().default(0),
+    // Phase 7: entity graph links (owner_text/requester_text kept as provenance fallback)
+    ownerEntityId: uuid("owner_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    requesterEntityId: uuid("requester_entity_id").references(() => entities.id, { onDelete: "set null" }),
   },
   (table) => ({
     userStatusIdx: index("loops_user_status_idx").on(table.userId, table.status),
     inboundEmailIdx: index("loops_inbound_email_idx").on(table.inboundEmailId),
     sourceEvidenceIdx: index("loops_source_evidence_idx").on(table.sourceEvidenceId),
+    ownerEntityIdx: index("loops_owner_entity_idx").on(table.ownerEntityId),
+    requesterEntityIdx: index("loops_requester_entity_idx").on(table.requesterEntityId),
     // Partial index for the nudge sweep eligibility query
     nextCheckAtIdx: index("loops_next_check_at_idx")
       .on(table.status, table.nextCheckAt)
@@ -808,6 +818,63 @@ export const failedProcessing = pgTable(
   }),
 );
 
+// Phase 7: entities — first-class people/companies promoted from free-text owner/requester.
+// canonical_email (normalized) is the only safe auto-merge key; name is an alias, never a join
+// key. merged_into_entity_id is a reversible-merge tombstone resolveEntity follows.
+export const entities = pgTable(
+  "entities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: entityKindEnum("kind").notNull().default("person"),
+    displayName: text("display_name").notNull(),
+    canonicalEmail: text("canonical_email"),
+    aliases: jsonb("aliases").notNull().default([]),
+    metadata: jsonb("metadata").notNull().default({}),
+    mergedIntoEntityId: uuid("merged_into_entity_id").references((): AnyPgColumn => entities.id, {
+      onDelete: "set null",
+    }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    canonicalEmailIdx: uniqueIndex("entities_user_canonical_email_unique")
+      .on(table.userId, table.canonicalEmail)
+      .where(sql`canonical_email IS NOT NULL`),
+    userKindIdx: index("entities_user_kind_idx").on(table.userId, table.kind),
+    mergedIntoIdx: index("entities_merged_into_idx").on(table.mergedIntoEntityId),
+  }),
+);
+
+// Phase 7: loop_entities — many-to-many join (owner/requester/participant) between loops and entities.
+export const loopEntities = pgTable(
+  "loop_entities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    loopId: uuid("loop_id")
+      .notNull()
+      .references(() => loops.id, { onDelete: "cascade" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entities.id, { onDelete: "cascade" }),
+    role: loopEntityRoleEnum("role").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    loopEntityRoleIdx: uniqueIndex("loop_entities_loop_entity_role_unique").on(
+      table.loopId,
+      table.entityId,
+      table.role,
+    ),
+    entityIdx: index("loop_entities_entity_idx").on(table.entityId),
+    loopIdx: index("loop_entities_loop_idx").on(table.loopId),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -852,3 +919,10 @@ export type DataDeletionRequest = typeof dataDeletionRequests.$inferSelect;
 export type NewDataDeletionRequest = typeof dataDeletionRequests.$inferInsert;
 export type FailedProcessing = typeof failedProcessing.$inferSelect;
 export type NewFailedProcessing = typeof failedProcessing.$inferInsert;
+
+export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
+export type EntityKind = typeof entityKindEnum.enumValues[number];
+export type LoopEntity = typeof loopEntities.$inferSelect;
+export type NewLoopEntity = typeof loopEntities.$inferInsert;
+export type LoopEntityRole = typeof loopEntityRoleEnum.enumValues[number];
