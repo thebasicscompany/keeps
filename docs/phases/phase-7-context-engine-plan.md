@@ -123,6 +123,27 @@ Waves map to parallel worktree subagents; commit per task; review every diff; ch
 
 ---
 
+## 6b. Adversarial-audit refinements (2026-06-14, folded mid-sprint)
+
+A two-pass devil's-advocate Codex audit (one design+research pass, one code pass) ran after Wave 0/A. The code pass found real false-merge edges in the resolver (already fixed: quoted-local mis-split, `+sales@`-empty-local falling into name matching, name-only attaching via a merge tombstone, race reselect not following the chain, company dedup lacking a unique index). The design pass produced the following decisions — **Wave B/C/D MUST honor these:**
+
+**Auto-folded refinements (cheap, clearly-correct):**
+1. **Banding is STRUCTURAL-first (R5/calibration).** The three-band decider keys PRIMARILY on structured corroboration — same thread / `In-Reply-To`/`References` / same resolved entity / same due-date / same quoted commitment. The model's `reconcileConfidence` is a WEAK SECONDARY feature, never the primary numeric threshold (LLM confidence is systematically miscalibrated, Guo 2017). No raw-confidence band boundary ships without a corroborating structured signal.
+2. **Anti-anchoring prompt shape (R6).** Two-step: have the model identify the NEW email's commitment identity BEFORE it sees candidates, then compare. In evals, shuffle candidate order, use opaque candidate ids, and require a "why this is NOT a match" note for the top non-selected candidate before any destructive action.
+3. **Auto-close needs same-thread or quoted-prior-commitment evidence + actor/object match (R7).** Cross-thread / same-entity evidence ALONE may NEVER auto-close → propose + ask. Close stays strictly gated.
+4. **Retrieval gets measured (R4, under-engineered).** B3 unions multiple candidate generators (same-thread, same-entity recency, AND trigram/full-text over loop summary + counterparty/deal terms) and caps AFTER scoring, not before. D1 MUST report **candidate recall** ("was the true loop in the candidate set?") as a first-class metric alongside decider precision — a perfect decider over a lossy candidate set still drowns the user in duplicates.
+5. **Strict-schema acceptance test (R8).** When B1 adds reconciliation fields, add a test that validates the EXACT generated JSON schema against OpenAI strict rules (flat, all-required, `additionalProperties:false`, nullable-not-optional, no nested unions) + a lint banning `.optional()`/`.default()`/nested unions. The prior strict-mode outage (commit 77717a3) makes this a CI gate, not a doc reminder.
+
+**Arav decisions on the contested forks:**
+6. **Middle ("ask") band creates a SUPPRESSED duplicate, not a first-class loop (R1).** Because email is the only UI (no dashboard habit), a "duplicate" open loop is NOT visible — it silently fragments recall via repeat nudges. So the uncertain-middle creates the new loop in a SUPPRESSED state (no nudges, not surfaced as open) AND asks on the private-reply channel. On confirm-same → dismiss the suppressed dup + apply the update to the original (both via `mutateLoopState`). On confirm-different → promote the suppressed dup to a normal open loop. B2 should represent "suppressed" via the existing `candidate` status if it is already non-nudged, else add a `suppressed` loop_status value (0019). Never silently merge; never nudge on an unconfirmed duplicate.
+7. **Role mailboxes (DONE, A1).** `sales@`/`founders@`/`info@`/`no-reply@`… (RFC 2142 + common) resolve as kind `other` (not `person`), metadata.roleMailbox. `+tag` stripping retained.
+8. **Company = domain kept, hardened (DONE, A1).** Domain-minus-freemail retained; punycode/IDN domains flagged metadata.idn; raw non-ASCII domains rejected by `normalizeEmail`.
+9. **Scope = full.** Entities + full three-band incl. the ask workflow stay in v1.
+
+Research pointers worth keeping (for D1 + any v2): Fellegi-Sunter (per-feature weights + clerical-review band), Ditto/ComEM/AnyMatch (hard-negative EM evals, select-among-candidates, cheap reranker), Guo 2017 (calibration curves before any numeric threshold), Splink blocking diagnostics (measure pair-completeness per candidate generator), RFC 5233/2142 (subaddressing + role mailboxes), pg_trgm/fuzzystrmatch (indexed suggestions, never auto-merge). Build-native still holds; Zep/Senzing have TS/Postgres surfaces but none own the merge pen the way our constraint requires.
+
+---
+
 ## 7. Verification duties (orchestrator, non-negotiable)
 
 Read every subagent diff before accepting. Adversarial focus:
