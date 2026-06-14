@@ -103,8 +103,8 @@ These are stored "Sensitive" in Vercel prod and can't be exported programmatical
 ## 5. Database & migrations (READ THIS — it's not standard Drizzle)
 
 - DB is **AWS RDS Postgres** in prod. There is **no Drizzle journal** — `pnpm db:migrate` / `db:generate` are **broken by design**. Do not run them.
-- Migrations are **hand-written, sequential, idempotent SQL** in `src/db/migrations/` (`0000` … `0018`). The Drizzle schema in `src/db/schema.ts` is kept as a **hand-maintained mirror** (used for the query builder + types, not migration generation).
-- **Writing a new migration:** next number is **`0019`**.
+- Migrations are **hand-written, sequential, idempotent SQL** in `src/db/migrations/` (`0000` … `0019`). The Drizzle schema in `src/db/schema.ts` is kept as a **hand-maintained mirror** (used for the query builder + types, not migration generation).
+- **Writing a new migration:** next number is **`0020`**.
   - New TABLES / new ENUM TYPES → copy the `0008`/`0015` style: `CREATE TYPE` inside a `DO $$ … duplicate_object` guard + `CREATE TABLE/INDEX IF NOT EXISTS`. Mirror the table in `schema.ts` and export its `$inferSelect`/`$inferInsert` types.
   - **ENUM-VALUE additions** to an existing type → copy `0009`/`0016`: `ALTER TYPE … ADD VALUE IF NOT EXISTS`, in their **own separate file**, because `ADD VALUE` **cannot run inside a transaction**.
   - Prove idempotency: apply your migration to local **twice**; the second run must only emit "already exists, skipping" NOTICEs, no errors.
@@ -122,22 +122,37 @@ These are stored "Sensitive" in Vercel prod and can't be exported programmatical
 
 ### What's already shipped (on `main`, green)
 
+**All of Phase 7 is code-complete on `main` and gated (tsc + ~1520 tests + `pnpm build` all green).** Only the irreversible prod ops steps remain (see "Remaining" below).
+
 | Wave | What | Key files |
 |------|------|-----------|
-| 0 | Entity schema — `entities`, `loop_entities`, `loops.owner/requester_entity_id`, `entity_kind`/`loop_entity_role` enums | `src/db/migrations/0018_phase7_entities.sql`, `src/db/schema.ts` |
-| A1 | Conservative resolver — find-or-create by normalized exact email; name is an alias never a join key; role mailboxes → kind `other`; company = domain − freemail (+punycode flag); reversible merge tombstone | `src/entities/resolve.ts` (+ `.test.ts`, `.db.test.ts`) |
+| 0 | Entity schema — `entities`, `loop_entities`, `loops.owner/requester_entity_id`, `entity_kind`/`loop_entity_role` enums | `migrations/0018_phase7_entities.sql`, `db/schema.ts` |
+| 0b | Reconciliation foundation — `pg_trgm`+`fuzzystrmatch`, GIN trigram indexes, `loop_status='suppressed'`, `loop_event_type` reconciliation values | `migrations/0019_phase7_reconciliation.sql` |
+| A1 | Conservative resolver — exact-email merge key; name is an alias never a join key; role mailboxes → kind `other`; company = domain − freemail (+punycode flag); reversible merge tombstone; quoted-local/empty-local/tombstone false-merge edges closed | `src/entities/resolve.ts` |
 | A3 | Link entities into capture (**post-commit best-effort** — a linking error never rolls back a loop) | `src/entities/link.ts`, `src/loops/repository.ts` |
-| A2 | Idempotent backfill for existing loops (reuses `linkLoopEntities`) | `scripts/backfill-entities.ts` |
+| A2 | Idempotent backfill for existing loops | `scripts/backfill-entities.ts` |
+| B3 | Scoped extraction-context loader — multi-generator candidate retrieval (thread + entity + trigram), cap after scoring | `src/agent/extraction-context.ts` |
+| B1 | Context-aware extraction — model PROPOSES reconciliation (flat strict fields, anchored to opaque refIds, two-step anti-anchoring prompt, deterministic fallback never reconciles) | `src/agent/extract-loops.ts`, `src/agent/schemas.ts` |
+| B2a | **The pure three-band decider** — structural-first; confidence is a weak secondary; `close` stricter than `update`; **discriminator guard** (Q2≠Q3, 401≠402) blocks same-thread distinct-deliverable merges. No false-merge path exists through it. | `src/agent/reconcile.ts` |
+| B2b | Apply in the capture path — create / auto-reconcile (`mutateLoopState`) / suppressed-dup + ask; provenance `loop_events`; backward-compatible (empty context ⇒ unchanged) | `src/loops/service.ts`, `src/loops/repository.ts` |
+| B2c | Ask-confirm reply handler — YES → merge (dismiss dup + advance original + `superseded`); NO → promote dup to open | `src/workflows/functions/handlers/reconcile-confirm.ts` |
+| C1 | Entity status synthesis — deterministic slice + model prose (AR-8) with no-creds fallback | `src/reports/query.ts`, `src/reports/summarize.ts` |
+| C2 | Real entity view — resolve entity queries to the graph (read-only), grouped `/r` page with recency | `src/entities/lookup.ts`, `app/r/[token]/page.tsx` |
+| D1 | Reconciliation eval — **false-merge hard gate (0)**, false-auto-close gate (0), candidate-recall metric | `src/agent/eval/reconciliation.eval.test.ts`, `candidate-recall.eval.db.test.ts` |
+| D2 | Provenance — `/admin/reconciliations` + digest copy | `app/admin/reconciliations/page.tsx`, `src/admin/reconciliations.ts` |
 
-An adversarial Codex audit ran after Wave A and (a) caught + fixed two real false-merge edges in the resolver, (b) produced design refinements now recorded in **plan §6b**. Don't re-litigate those.
+Two adversarial Codex audits ran during the sprint: a code pass caught + fixed two real false-merge edges in the resolver; a design pass produced the refinements in **plan §6b** (binding). D1's eval then caught a third false-merge path (same-thread distinct-deliverable) which the **discriminator guard** in `reconcile.ts` now closes. Don't re-litigate §6b.
 
-### What's next (Wave B — the core, review-hardest)
+### Remaining (ops — needs Arav's go-ahead; irreversible)
 
-- **B3** `loadExtractionContext(...)` — scoped candidate loops + known entities. Per §6b: union **multiple** candidate generators (same-thread + same-entity + trigram/full-text over summary & counterparty), cap **after** scoring.
-- **B1** make `extractLoops` context-aware — inject the scoped candidates; output gains FLAT, all-required-nullable reconciliation fields (`reconcilesLoopId`, `reconcileAction`, `reconcileConfidence`, `reconcileEvidence`); **strict OpenAI structured outputs** (no `.optional()`/`.default()`/nested unions — a violation caused a prod outage). Two-step anti-anchoring prompt. Deterministic fallback **never** reconciles.
-- **B2** `src/agent/reconcile.ts` — the **three-band decider + apply**. Bands key **structurally first** (same thread / `In-Reply-To` / same entity / due-date / quoted commitment); LLM confidence is a weak secondary feature. HIGH+corroboration → auto-reconcile via `mutateLoopState`; LOW → create-new; **uncertain middle → create a SUPPRESSED duplicate (no nudges) + ask on the private-reply channel** (Arav's decision — email is the only UI, so a visible "duplicate" open loop just spams nudges). Auto-`close` is gated stricter than `update`.
+1. Apply `0018` + `0019` to **prod** by hand via `psql` (prod `DATABASE_URL` from Doppler `keeps/prd`). 0019 is non-transactional — run it outside a tx.
+2. Run the entity backfill against prod: `DATABASE_URL=<prod> pnpm tsx scripts/backfill-entities.ts` (idempotent; `--dry-run` first).
+3. `vercel deploy --prod --yes` (Inngest auto-syncs).
+4. Live UAT: CC a fresh email referencing a prior commitment → it should UPDATE the existing loop (not dup); a counterparty "done" reply → CLOSE the waiting-on loop; "where's <entity> at?" → synthesized status; an uncertain match → a YES/NO ask whose reply merges or keeps-separate.
 
-Then **Wave C** (entity synthesis recall + entity views), **Wave D** (reconciliation eval incl. a **false-merge-rate hard gate** + **candidate-recall** metric; provenance/admin), then ops (prod migrate + backfill + deploy + live UAT).
+### One known follow-up (not a blocker)
+
+The reconcile `update` action maps to `mutateLoopState('confirm')` (status → `open`) — it advances + records activity + writes a `reconciled` provenance event, but does not field-merge the new email's text into the existing loop. Richer field-merge would need a new non-status-resetting `mutateLoopState` action. The provenance event captures the absorbed summary meanwhile.
 
 ---
 
