@@ -197,13 +197,13 @@ const SCENARIOS: Scenario[] = [
   // Same entity + same thread + high conf, but a DIFFERENT deliverable. The
   // token-overlap guardrail is the last line of defense; where it still passes,
   // we accept ask, but NEVER reconcile.
-  // KNOWN GAP (see FINDING in the report): same-thread, distinct deliverable,
-  // high token overlap. The deterministic Jaccard guardrail can't separate
-  // "Q2 renewal" from "Q3 renewal" (0.60 overlap, 3/5 shared tokens), so the
-  // CURRENT decider AUTO-MERGES. We assert the OBSERVED behavior so the suite is
-  // honest, mark it knownGap (excluded from the hard gate), and report it loudly.
+  // NOW-DEFENDED (was a KNOWN GAP): same-thread, distinct deliverable, high token overlap.
+  // Plain Jaccard can't separate "Q2 renewal" from "Q3 renewal" (0.60 overlap), so the
+  // discriminator-mismatch guard in reconcile.ts catches disjoint identifiers (Q2 vs Q3,
+  // 401 vs 402) and DOWNGRADES the auto-update to `ask`. These are full hard-gate cases now:
+  // a distinct commitment must NEVER auto-merge.
   {
-    name: "KNOWN-GAP: 'Q2 renewal' vs 'Q3 renewal' — same thread, distinct deliverable, decider auto-merges",
+    name: "'Q2 renewal' vs 'Q3 renewal' — same thread, distinct deliverable → ask (discriminator guard)",
     proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.95 }),
     candidate: candidate("send Acme the Q3 renewal"),
     structural: {
@@ -211,12 +211,11 @@ const SCENARIOS: Scenario[] = [
       sameThread: true,
       sameEntity: true,
     },
-    expected: "reconcile_update", // OBSERVED, not desired — see knownGap
+    expected: "ask",
     distinctCommitment: true,
-    knownGap: true,
   },
   {
-    name: "KNOWN-GAP: 'invoice 401' vs 'invoice 402' — same thread, distinct deliverable, decider auto-merges",
+    name: "'invoice 401' vs 'invoice 402' — same thread, distinct deliverable → ask (discriminator guard)",
     proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.93 }),
     candidate: candidate("approve invoice 402 for the contractor"),
     structural: {
@@ -224,9 +223,8 @@ const SCENARIOS: Scenario[] = [
       sameThread: true,
       sameEntity: true,
     },
-    expected: "reconcile_update", // OBSERVED — same blind spot as above
+    expected: "ask",
     distinctCommitment: true,
-    knownGap: true,
   },
   {
     name: "adversarial: same entity, different deliverable, ~zero token overlap → ask (structural routes to human, never merges)",
@@ -483,20 +481,13 @@ describe("reconciliation decision eval (pure, no DB)", () => {
     expect(metrics.asksCaught).toBeGreaterThan(0);
   });
 
-  // The known-gap cases must stay present and keep their OBSERVED behavior. If a
-  // future guardrail fix makes the decider STOP auto-merging same-thread distinct
-  // deliverables, THIS test flips red (got !== reconcile_*), which is the signal
-  // to promote them out of knownGap and into the hard gate.
-  it("DOCUMENTED BLIND SPOT: known-gap distinct-deliverable cases still auto-merge (regression sentinel)", () => {
+  // The former same-thread distinct-deliverable blind spot is now CLOSED by the
+  // discriminator-mismatch guard in reconcile.ts (Q2 vs Q3, 401 vs 402 → ask, never merge).
+  // The two cases are promoted into the hard gate above (expected: "ask", distinctCommitment).
+  // This test guards against anyone re-introducing a knownGap escape hatch.
+  it("has no remaining knownGap escape hatches (the distinct-deliverable gap is closed)", () => {
     const gaps = scored.filter((s) => s.knownGap);
-    expect(gaps.length).toBeGreaterThan(0);
-    for (const s of gaps) {
-      // Sentinel: today these auto-merge. If this stops being true, revisit.
-      expect(
-        RECONCILE_LABELS.has(s.got),
-        `known-gap "${s.name}" no longer auto-merges (got=${s.got}) — promote it into the hard gate`,
-      ).toBe(true);
-    }
+    expect(gaps).toEqual([]);
   });
 
   it("prints the reconciliation metrics summary", () => {

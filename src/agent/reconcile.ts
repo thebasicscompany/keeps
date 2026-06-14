@@ -71,6 +71,42 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Discriminator tokens — identifying markers that distinguish two otherwise-similar
+ * commitments: quarters (q1–q4), fiscal years (fy24), halves (h1/h2), versions (v2, v1.3),
+ * and any multi-digit number (invoice/PO/ticket numbers, years). Token-Jaccard CANNOT
+ * separate "send Acme the Q2 renewal" from "...Q3 renewal" (0.60 overlap, one token differs),
+ * which is a same-thread FALSE-MERGE corridor surfaced by the D1 eval. When both summaries
+ * carry discriminators and they are fully DISJOINT, the commitments are treated as DISTINCT
+ * and an auto-reconcile is DOWNGRADED to `ask` (never a silent merge — this guard can only
+ * ever block a merge, never cause one).
+ */
+const DISCRIMINATOR_RE = /\b(?:q[1-4]|fy\d{2,4}|h[12]|v\d+(?:\.\d+)*|\d{2,})\b/gi;
+
+export function discriminatorsOf(summary: string): Set<string> {
+  const out = new Set<string>();
+  const matches = summary.toLowerCase().match(DISCRIMINATOR_RE);
+  if (matches) {
+    for (const m of matches) out.add(m);
+  }
+  return out;
+}
+
+/**
+ * True when both summaries carry at least one discriminator AND share none — i.e. each names
+ * an identifier the other lacks (Q2 vs Q3, invoice 401 vs 402). Returns false when either side
+ * has no discriminator (can't conclude) or they share one (likely the same deliverable).
+ */
+export function discriminatorMismatch(a: string, b: string): boolean {
+  const da = discriminatorsOf(a);
+  const db = discriminatorsOf(b);
+  if (da.size === 0 || db.size === 0) return false;
+  for (const x of da) {
+    if (db.has(x)) return false; // a shared discriminator → not a mismatch
+  }
+  return true; // both non-empty, fully disjoint → distinct deliverables
+}
+
 export function decideReconciliation(input: {
   proposal: ReconcileProposal;
   candidate: ReconcileCandidate;
@@ -109,6 +145,10 @@ export function decideReconciliation(input: {
   const guardrailAgrees = sim >= TOKEN_SIM_FLOOR;
   const simStr = round2(sim).toFixed(2);
 
+  // Discriminator guard: even with high token overlap + a structural signal, disjoint
+  // identifiers (Q2 vs Q3, 401 vs 402) mean DISTINCT commitments → never auto-reconcile.
+  const discMismatch = discriminatorMismatch(structural.newLoopSummary, candidate.summary);
+
   // ── Step 3: structural signal presence. ─────────────────────────────────────
   const { sameThread, sameEntity } = structural;
   const hasStructural = sameThread || sameEntity;
@@ -135,14 +175,24 @@ export function decideReconciliation(input: {
 
   // ── Step 5: HAS a structural signal — band by action. ───────────────────────
   if (reconcileAction === "update") {
-    // AUTO update requires structural + guardrail + confidence floor.
-    if (guardrailAgrees && reconcileConfidence >= UPDATE_CONF) {
+    // AUTO update requires structural + guardrail + confidence floor — AND no discriminator
+    // mismatch (disjoint identifiers ⇒ distinct deliverables, never silently merged).
+    if (guardrailAgrees && reconcileConfidence >= UPDATE_CONF && !discMismatch) {
       return {
         kind: "reconcile",
         action: "update",
         loopId: candidate.id,
         evidence,
         reason: `Auto-updated ${candidate.refId}: ${structuralDesc} + token overlap ${simStr}, model conf ${round2(reconcileConfidence)}.`,
+      };
+    }
+    // Would have auto-updated, but disjoint discriminators mark distinct deliverables → ask.
+    if (guardrailAgrees && reconcileConfidence >= UPDATE_CONF && discMismatch) {
+      return {
+        kind: "ask",
+        loopId: candidate.id,
+        evidence,
+        reason: `Asked instead of auto-updating ${candidate.refId}: ${structuralDesc} + overlap ${simStr}, but the two name different identifiers (e.g. Q2 vs Q3) — distinct deliverables, so confirm before merging.`,
       };
     }
     // Middle band: a structural OR guardrail signal plus minimal confidence ⇒ ask.
@@ -165,7 +215,7 @@ export function decideReconciliation(input: {
   // confidence floor strictly above update. Anything weaker DOWNGRADES to ask;
   // we never silently auto-close on weak evidence, and a sameEntity-but-not-
   // sameThread close proposal can NEVER auto-close.
-  if (sameThread && guardrailAgrees && reconcileConfidence >= CLOSE_CONF) {
+  if (sameThread && guardrailAgrees && reconcileConfidence >= CLOSE_CONF && !discMismatch) {
     return {
       kind: "reconcile",
       action: "close",

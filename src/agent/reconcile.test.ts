@@ -310,3 +310,52 @@ describe("provenance", () => {
     }
   });
 });
+
+// ── Discriminator-mismatch guard (D1 finding: same-thread distinct deliverable) ──
+
+describe("discriminator-mismatch guard", () => {
+  it("downgrades a same-thread high-conf update to ask when identifiers diverge (Q2 vs Q3)", () => {
+    const d = decideReconciliation({
+      proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.95 }),
+      candidate: candidate({ summary: "send Acme the Q3 renewal" }),
+      structural: { newLoopSummary: "send Acme the Q2 renewal", sameThread: true, sameEntity: true },
+    });
+    expect(d.kind).toBe("ask"); // NEVER reconcile — distinct deliverables
+  });
+
+  it("downgrades to ask when invoice numbers diverge (401 vs 402)", () => {
+    const d = decideReconciliation({
+      proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.95 }),
+      candidate: candidate({ summary: "approve invoice 402 for the contractor" }),
+      structural: { newLoopSummary: "approve invoice 401 for the contractor", sameThread: true, sameEntity: true },
+    });
+    expect(d.kind).toBe("ask");
+  });
+
+  it("does NOT auto-close when identifiers diverge, even same-thread high-conf", () => {
+    const d = decideReconciliation({
+      proposal: proposal({ reconcileAction: "close", reconcileConfidence: 0.95 }),
+      candidate: candidate({ summary: "finalize the Q3 budget" }),
+      structural: { newLoopSummary: "finalize the Q2 budget", sameThread: true, sameEntity: true },
+    });
+    expect(d.kind).toBe("ask");
+  });
+
+  it("STILL auto-reconciles when the identifier MATCHES (same Q2, paraphrased)", () => {
+    const d = decideReconciliation({
+      proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.9 }),
+      candidate: candidate({ summary: "send Acme the Q2 renewal contract" }),
+      structural: { newLoopSummary: "send Acme the Q2 renewal contract this week", sameThread: true, sameEntity: true },
+    });
+    expect(d.kind).toBe("reconcile"); // shared discriminator Q2 → not blocked
+  });
+
+  it("does not block when only one side has a discriminator (can't conclude mismatch)", () => {
+    const d = decideReconciliation({
+      proposal: proposal({ reconcileAction: "update", reconcileConfidence: 0.9 }),
+      candidate: candidate({ summary: "send the signed vendor contract to acme finance" }),
+      structural: { newLoopSummary: "send the signed vendor contract to acme finance Q4", sameThread: true, sameEntity: true },
+    });
+    expect(d.kind).toBe("reconcile");
+  });
+});
