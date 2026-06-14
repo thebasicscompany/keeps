@@ -18,9 +18,16 @@
  * in Doppler / CI the var is already in process.env.
  */
 
-import { loadEnvConfig } from "@next/env";
+// @next/env ships as CommonJS; on newer Node the ESM lexer can't reliably detect the named
+// `loadEnvConfig` export, so reach it off the default import and treat env-file loading as
+// BEST-EFFORT — Doppler / CI / an explicit DATABASE_URL already populate process.env.
+import nextEnv from "@next/env";
 
-loadEnvConfig(process.cwd());
+try {
+  (nextEnv as { loadEnvConfig?: (dir: string) => void }).loadEnvConfig?.(process.cwd());
+} catch {
+  // Ignore: rely on process.env already being populated (e.g. DATABASE_URL passed in).
+}
 
 import { pathToFileURL } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
