@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { extractLoops } from "@/agent/extract-loops";
+import { extractLoops, buildReconciliationPrompt } from "@/agent/extract-loops";
 import { loopExtractionResultSchema } from "@/agent/schemas";
 import { launchThreadFixture } from "@/agent/fixtures/launch-thread";
 import { bccLikePostmarkFixture, forwardLikePostmarkFixture } from "@/email/fixtures/postmark";
 import { normalizePostmarkInbound, type NormalizedEmail } from "@/email/normalize";
 import { assertApprovalAllowed, requiresApproval } from "@/policy/actions";
+import type { ExtractionContext } from "@/agent/extraction-context";
 
 describe("extractLoops", () => {
   it("returns schema-valid loop candidates from the phase 0 fixture", async () => {
@@ -52,6 +53,115 @@ describe("extractLoops", () => {
     expect(result.loops).toHaveLength(1);
     expect(result.loops[0]?.confidence).toBeLessThan(0.7);
     expect(result.clarifyingQuestion).toContain("Should I track this?");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 7 B1 — context-aware reconciliation PROPOSAL fields
+  // -------------------------------------------------------------------------
+
+  it("deterministic path proposes create/null/0/null for EVERY candidate (never reconciles, no creds)", async () => {
+    const result = await extractLoops({
+      email: normalizePostmarkInbound(forwardLikePostmarkFixture),
+    });
+
+    expect(result.loops.length).toBeGreaterThan(0);
+    for (const loop of result.loops) {
+      expect(loop.reconcilesLoopRef).toBeNull();
+      expect(loop.reconcileAction).toBe("create");
+      expect(loop.reconcileConfidence).toBe(0);
+      expect(loop.reconcileEvidence).toBeNull();
+    }
+    // The new fields must satisfy the strict schema.
+    expect(() => loopExtractionResultSchema.parse(result)).not.toThrow();
+  });
+
+  it("is backward-compatible when context is absent (deterministic output unchanged + reconcile defaults)", async () => {
+    const withoutContext = await extractLoops({ email: launchThreadFixture });
+    // Passing an explicitly empty context must behave identically.
+    const emptyContext: ExtractionContext = { openLoops: [], knownEntities: [] };
+    const withEmptyContext = await extractLoops({ email: launchThreadFixture, context: emptyContext });
+
+    expect(withEmptyContext.loops.map((l) => l.summary)).toEqual(
+      withoutContext.loops.map((l) => l.summary),
+    );
+    for (const loop of withEmptyContext.loops) {
+      expect(loop.reconcilesLoopRef).toBeNull();
+      expect(loop.reconcileAction).toBe("create");
+    }
+  });
+});
+
+describe("buildReconciliationPrompt (Phase 7 B1 prompt builder)", () => {
+  const context: ExtractionContext = {
+    openLoops: [
+      {
+        id: "11111111-1111-1111-1111-111111111111",
+        refId: "L1",
+        summary: "Send the renewal packet to Acme",
+        status: "open",
+        ownerText: "You",
+        requesterText: "Acme",
+        emailThreadId: "thread-acme-1",
+        entityIds: ["e-acme"],
+        dueAt: "2026-06-20T17:00:00.000Z",
+        updatedAt: "2026-06-10T12:00:00.000Z",
+        generators: ["thread", "entity"],
+        score: 1.7,
+      },
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        refId: "L2",
+        summary: "Confirm the discount cap with finance",
+        status: "waiting_on_other",
+        ownerText: null,
+        requesterText: null,
+        emailThreadId: "thread-finance-9",
+        entityIds: [],
+        dueAt: null,
+        updatedAt: "2026-06-09T12:00:00.000Z",
+        generators: ["recent"],
+        score: 0.2,
+      },
+    ],
+    knownEntities: [
+      {
+        id: "e-acme",
+        displayName: "Acme Corp",
+        kind: "company",
+        canonicalEmail: "ops@acme.com",
+        openLoopCount: 3,
+      },
+    ],
+  };
+
+  it("renders every candidate refId, summary, and the known entities block", () => {
+    const prompt = buildReconciliationPrompt(context);
+
+    // Candidate refIds + summaries present
+    expect(prompt).toContain("L1: Send the renewal packet to Acme");
+    expect(prompt).toContain("L2: Confirm the discount cap with finance");
+    expect(prompt).toContain("status: open");
+    expect(prompt).toContain("status: waiting_on_other");
+    // Known entity rendered with kind + open-loop count
+    expect(prompt).toContain("Acme Corp (company, 3 open loops)");
+  });
+
+  it("frames create-new as the SAFE DEFAULT and select-ONE-among-candidates (anti-anchoring)", () => {
+    const prompt = buildReconciliationPrompt(context);
+
+    expect(prompt).toContain("SAFE DEFAULT");
+    expect(prompt.toLowerCase()).toContain("this email alone");
+    expect(prompt.toLowerCase()).toContain("unambiguously");
+    // Candidates are framed as context, not an instruction to match.
+    expect(prompt).toContain("NOT instructions");
+    // Require evidence when a refId is chosen.
+    expect(prompt).toContain("reconcileEvidence MUST name the concrete shared identifier");
+  });
+
+  it("does NOT leak the real loop id to the model (refId only)", () => {
+    const prompt = buildReconciliationPrompt(context);
+    expect(prompt).not.toContain("11111111-1111-1111-1111-111111111111");
+    expect(prompt).not.toContain("22222222-2222-2222-2222-222222222222");
   });
 });
 

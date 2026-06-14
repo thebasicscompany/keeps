@@ -73,6 +73,39 @@ export const loopCandidateSchema = z.object({
   participants: z.array(participantSchema),
   source: sourceEvidenceSchema,
   ambiguityFlags: z.array(z.string()),
+  // -------------------------------------------------------------------------
+  // Phase 7 B1 — context-aware reconciliation PROPOSAL fields (AR-8: the model
+  // PROPOSES; the deterministic decider in B2 DISPOSES). These fields NEVER
+  // mutate or reconcile anything; they only carry the model's proposed link
+  // against the injected candidate set. The deterministic extractor always
+  // proposes create/null/0/null (it never reconciles). Kept flat + all-required
+  // + nullable-where-optional to preserve the OpenAI strict-mode contract.
+  // -------------------------------------------------------------------------
+  /**
+   * The opaque refId (e.g. "L2") of the ONE candidate open loop this email
+   * advances/closes, or null. MUST be a refId from the injected candidate set
+   * (validated downstream by the decider), NOT a freeform loop id. Null when the
+   * model proposes create (the SAFE DEFAULT).
+   */
+  reconcilesLoopRef: z.string().nullable(),
+  /**
+   * 'create' = a brand-new commitment (safe default); 'update' = advances an
+   * existing candidate; 'close' = the existing candidate is now done. Plain
+   * string enum (NOT a discriminated union) to stay strict-mode compatible.
+   */
+  reconcileAction: z.enum(["create", "update", "close"]),
+  /**
+   * 0..1 self-rated match confidence. The decider treats this as a WEAK
+   * secondary signal (never a threshold by itself) — emit it honestly.
+   */
+  reconcileConfidence: z.number().min(0).max(1),
+  /**
+   * The specific shared identifier justifying the link (e.g. "same thread +
+   * same counterparty Acme + same deliverable 'renewal packet'"). REQUIRED to be
+   * non-null whenever reconcilesLoopRef is non-null; null when reconcilesLoopRef
+   * is null.
+   */
+  reconcileEvidence: z.string().nullable(),
 });
 
 export const extractionIntentSchema = z.enum(["capture", "command", "approval", "question", "correction", "unknown"]);

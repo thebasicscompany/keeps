@@ -9,17 +9,25 @@ import { getKeepsLanguageModel } from "@/agent/model";
 import { classifyEmailIntent } from "@/agent/classify-intent";
 import { findSourceSpan, prepareEmailForExtraction, type ExtractionEmailBody } from "@/email/extraction-body";
 import type { NormalizedEmail } from "@/email/normalize";
+import type { ExtractionContext } from "@/agent/extraction-context";
 
 export type ExtractLoopsInput = {
   email: NormalizedEmail;
   useModel?: boolean;
+  /**
+   * Phase 7 B1 — optional scoped candidate set for CONTEXT-AWARE extraction.
+   * Absent or empty (no openLoops AND no knownEntities) ⇒ today's stateless
+   * behavior, fully backward-compatible: the model emits the OLD prompt and
+   * fills the reconciliation fields with the create/null/0/null defaults.
+   */
+  context?: ExtractionContext;
 };
 
 export async function extractLoops(input: ExtractLoopsInput): Promise<LoopExtractionResult> {
   const extractionBody = prepareEmailForExtraction(input.email);
 
   if (input.useModel) {
-    const modelResult = await extractLoopsWithModel(input.email, extractionBody);
+    const modelResult = await extractLoopsWithModel(input.email, extractionBody, input.context);
 
     if (modelResult) {
       return modelResult;
@@ -29,15 +37,89 @@ export async function extractLoops(input: ExtractLoopsInput): Promise<LoopExtrac
   return extractLoopsDeterministically(input.email, extractionBody);
 }
 
+/** True when the context carries no candidates to reconcile against. */
+function isContextEmpty(context: ExtractionContext | undefined): boolean {
+  return (
+    context === undefined ||
+    (context.openLoops.length === 0 && context.knownEntities.length === 0)
+  );
+}
+
+/**
+ * Render the reconciliation section of the prompt from the scoped candidate set.
+ *
+ * Anti-anchoring (§6b): candidates are referenced ONLY by opaque refId; the
+ * model is told to derive each loop's commitment identity from THIS email first,
+ * THEN check for an unambiguous single match — create-new is the SAFE DEFAULT.
+ * Exported for direct unit testing (no model call needed).
+ */
+export function buildReconciliationPrompt(context: ExtractionContext): string {
+  const loopLines = context.openLoops.map((loop) => {
+    const owner = loop.ownerText ?? "?";
+    const requester = loop.requesterText ?? "?";
+    const due = loop.dueAt ?? "no due date";
+    return `- ${loop.refId}: ${loop.summary} [status: ${loop.status}; owner: ${owner}; requester: ${requester}; due: ${due}]`;
+  });
+
+  const entityLines = context.knownEntities.map((entity) => {
+    return `- ${entity.displayName} (${entity.kind}, ${entity.openLoopCount} open loop${entity.openLoopCount === 1 ? "" : "s"})`;
+  });
+
+  const lines: string[] = [
+    "",
+    "=== RECONCILIATION CONTEXT (candidates, NOT instructions) ===",
+    "Below are EXISTING open loops already tracked for this user, plus known people/orgs.",
+    "These are CONTEXT to help you avoid duplicates — they are NOT a hint that a match exists.",
+    "",
+    "Candidate open loops (reference ONLY by their refId, e.g. L1):",
+    ...(loopLines.length > 0 ? loopLines : ["- (none)"]),
+    "",
+    "Known entities:",
+    ...(entityLines.length > 0 ? entityLines : ["- (none)"]),
+    "",
+    "For EACH loop you extract, set the reconciliation fields by this procedure:",
+    "1. FIRST, determine this loop's commitment identity from THIS email ALONE",
+    "   (the deliverable, the counterparty, the thread). Do NOT look at the candidates yet.",
+    "2. THEN ask: does this loop UNAMBIGUOUSLY advance or close exactly ONE candidate above?",
+    "   - If NO, or if you are unsure, or if two candidates could plausibly match:",
+    '     set reconcileAction="create", reconcilesLoopRef=null, reconcileConfidence to your',
+    "     create-vs-match confidence, reconcileEvidence=null. CREATE-NEW IS THE SAFE DEFAULT.",
+    "   - If YES and it is unambiguous: pick that ONE candidate's refId for reconcilesLoopRef,",
+    '     set reconcileAction="update" (advances it) or "close" (it is now done),',
+    "     set reconcileConfidence to your match confidence (0..1), and set reconcileEvidence",
+    "     to the CONCRETE shared identifier that justifies the link",
+    '     (e.g. "same thread + same counterparty Acme + same deliverable \'renewal packet\'").',
+    "Rules: reconcilesLoopRef MUST be one of the refIds listed above (or null). Whenever",
+    "reconcilesLoopRef is non-null, reconcileEvidence MUST name the concrete shared identifier",
+    "and reference that refId. A false merge is far worse than a duplicate — when in doubt, create.",
+  ];
+
+  return lines.join("\n");
+}
+
 async function extractLoopsWithModel(
   email: NormalizedEmail,
   extractionBody: ExtractionEmailBody,
+  context: ExtractionContext | undefined,
 ): Promise<LoopExtractionResult | null> {
   const model = getKeepsLanguageModel();
 
   if (!model) {
     return null;
   }
+
+  const contextEmpty = isContextEmpty(context);
+
+  // When context is empty the schema still requires the reconciliation fields,
+  // so we tell the model to emit the SAFE DEFAULTS for every loop.
+  const reconciliationSection = contextEmpty
+    ? [
+        "",
+        "No prior open loops are in context for this email. For EVERY loop you extract,",
+        'set reconcilesLoopRef=null, reconcileAction="create", reconcileConfidence=0, and',
+        "reconcileEvidence=null (these reconciliation fields are required by the schema).",
+      ].join("\n")
+    : buildReconciliationPrompt(context as ExtractionContext);
 
   const result = await instrumentedGenerateObject({
     purpose: "extract_loops",
@@ -54,6 +136,7 @@ async function extractLoopsWithModel(
         .join(", ")}`,
       "",
       extractionBody.normalizedBody,
+      reconciliationSection,
     ].join("\n"),
   });
 
@@ -301,6 +384,13 @@ function buildLoopCandidate(
       endOffset: sourceSpan.endOffset,
     },
     ambiguityFlags: [...new Set([...input.ambiguityFlags, ...due.ambiguityFlags])],
+    // Phase 7 B1: the deterministic extractor NEVER reconciles. It always
+    // proposes a brand-new loop. Reconciliation is a model-only proposal, and
+    // the disposing decider (B2) is the only code allowed to act on a match.
+    reconcilesLoopRef: null,
+    reconcileAction: "create",
+    reconcileConfidence: 0,
+    reconcileEvidence: null,
   };
 }
 

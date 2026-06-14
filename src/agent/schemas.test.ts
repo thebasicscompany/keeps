@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   connectorCommandDraftSchema,
   connectorActionPayloadSchema,
   connectorDestinationSchema,
+  loopCandidateSchema,
+  loopExtractionResultSchema,
   type ConnectorCommandDraft,
   type ConnectorActionPayload,
 } from "@/agent/schemas";
@@ -266,5 +269,121 @@ describe("connectorActionPayloadSchema", () => {
     expect(() =>
       connectorActionPayloadSchema.parse({ ...calendarEventPayload, whenAt: null }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 7 B1 — STRICT-MODE GUARD (§6b R8)
+//
+// Locks the OpenAI strict structured-output contract for the loop-extraction
+// schemas so a future edit can't reintroduce the prod outage (commit 77717a3).
+// We convert the schema to JSON Schema (zod 4 built-in z.toJSONSchema) and
+// assert the structural invariants:
+//   - every object's properties are ALL in `required` (no optional fields)
+//   - every object is `additionalProperties: false`
+//   - NO `default` anywhere (strict mode rejects defaults)
+//   - NO `oneOf`/`allOf` anywhere (discriminatedUnion/composition is rejected)
+//   - the ONLY `anyOf` permitted is the nullable encoding `[T, {type:"null"}]`
+//     that `.nullable()` produces — that IS how the AI SDK encodes nullables
+//     under strict mode and is allowed; any other `anyOf` (a real union) fails.
+// ---------------------------------------------------------------------------
+
+/** Walk every object node in a JSON Schema and assert the strict invariants. */
+function assertStrictNode(node: unknown, path: string, violations: string[]): void {
+  if (Array.isArray(node)) {
+    node.forEach((child, i) => assertStrictNode(child, `${path}[${i}]`, violations));
+    return;
+  }
+  if (node === null || typeof node !== "object") {
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+
+  if ("default" in obj) {
+    violations.push(`${path}: has 'default' (strict mode forbids defaults)`);
+  }
+  if ("oneOf" in obj) {
+    violations.push(`${path}: has 'oneOf' (composition is rejected by strict mode)`);
+  }
+  if ("allOf" in obj) {
+    violations.push(`${path}: has 'allOf' (composition is rejected by strict mode)`);
+  }
+
+  // anyOf is permitted ONLY as the nullable encoding: exactly one non-null
+  // branch + one {type:"null"} branch. Anything else is a real union → reject.
+  if ("anyOf" in obj) {
+    const branches = obj.anyOf as unknown[];
+    const nullBranches = branches.filter(
+      (b) => b !== null && typeof b === "object" && (b as Record<string, unknown>).type === "null",
+    );
+    const isNullableEncoding = branches.length === 2 && nullBranches.length === 1;
+    if (!isNullableEncoding) {
+      violations.push(
+        `${path}: has a non-nullable 'anyOf' (${branches.length} branches) — real unions are rejected`,
+      );
+    }
+  }
+
+  // For object nodes: every property must be required + additionalProperties false.
+  if (obj.type === "object" && obj.properties && typeof obj.properties === "object") {
+    const props = obj.properties as Record<string, unknown>;
+    const propKeys = Object.keys(props);
+    const required = Array.isArray(obj.required) ? (obj.required as string[]) : [];
+
+    for (const key of propKeys) {
+      if (!required.includes(key)) {
+        violations.push(`${path}: property '${key}' is not in 'required' (must be required-not-optional)`);
+      }
+    }
+    if (obj.additionalProperties !== false) {
+      violations.push(`${path}: additionalProperties is not false`);
+    }
+  }
+
+  // Recurse into all child values.
+  for (const [key, value] of Object.entries(obj)) {
+    assertStrictNode(value, `${path}.${key}`, violations);
+  }
+}
+
+describe("loop-extraction strict-mode guard (Phase 7 B1, §6b R8)", () => {
+  it("loopCandidateSchema converts to a strict-safe JSON Schema (all required, no default/oneOf/allOf)", () => {
+    const json = z.toJSONSchema(loopCandidateSchema);
+    const violations: string[] = [];
+    assertStrictNode(json, "loopCandidate", violations);
+    expect(violations).toEqual([]);
+  });
+
+  it("loopExtractionResultSchema converts to a strict-safe JSON Schema", () => {
+    const json = z.toJSONSchema(loopExtractionResultSchema);
+    const violations: string[] = [];
+    assertStrictNode(json, "loopExtractionResult", violations);
+    expect(violations).toEqual([]);
+  });
+
+  it("loopCandidateSchema includes the B1 reconciliation fields in required", () => {
+    const json = z.toJSONSchema(loopCandidateSchema) as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    for (const field of [
+      "reconcilesLoopRef",
+      "reconcileAction",
+      "reconcileConfidence",
+      "reconcileEvidence",
+    ]) {
+      expect(json.properties).toHaveProperty(field);
+      expect(json.required).toContain(field);
+    }
+  });
+
+  it("reconcileAction is a plain string enum (create/update/close), not a union", () => {
+    const json = z.toJSONSchema(loopCandidateSchema) as {
+      properties: Record<string, { type?: string; enum?: string[]; anyOf?: unknown }>;
+    };
+    const action = json.properties.reconcileAction;
+    expect(action.type).toBe("string");
+    expect(action.enum).toEqual(["create", "update", "close"]);
+    expect(action.anyOf).toBeUndefined();
   });
 });
