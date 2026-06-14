@@ -28,7 +28,14 @@ export type ReportLoopActivity = {
 
 export type ReportKind = "insights" | "waiting_on" | "stale" | "weekly" | "entity";
 
-export type ReportScope = { entity?: string; daysStale?: number } & Record<string, unknown>;
+// `entity` is the raw user-typed name/term (legacy substring fallback). `entityId` is the
+// resolved entity-graph id the routing task populates (Phase 7 C1) — when present, the entity
+// report is synthesized from the graph instead of a substring match over the flat loop list.
+export type ReportScope = {
+  entity?: string;
+  entityId?: string;
+  daysStale?: number;
+} & Record<string, unknown>;
 
 // ── Output types ─────────────────────────────────────────────────────────────
 
@@ -282,6 +289,323 @@ export function assembleReport(input: {
     scope,
     now,
     totalOpen,
+    sections,
+  };
+}
+
+// ── Entity status report (Phase 7 C1) ─────────────────────────────────────────
+//
+// A real entity-scoped view assembled from the entity graph (NOT a substring match).
+// Deterministic code gathers a FIXED, ORDERED, serialization-safe slice for ONE entity;
+// the model later writes ONLY prose over this slice (AR-8) and may reference only these rows.
+
+/** Open statuses surfaced as active work on an entity. */
+const ENTITY_OPEN_STATUSES: ReadonlySet<LoopStatus> = new Set([
+  "candidate",
+  "open",
+  "waiting_on_me",
+  "waiting_on_other",
+  "blocked",
+  "snoozed",
+]);
+/** Closed statuses surfaced as resolved work on an entity. */
+const ENTITY_CLOSED_STATUSES: ReadonlySet<LoopStatus> = new Set(["done", "dismissed"]);
+
+export type EntityReportLoop = {
+  id: string;
+  status: LoopStatus;
+  summary: string;
+  dueAtIso: string | null;
+  confidence: number;
+  /** Roles the entity plays on this loop (owner/requester/participant), deduped + sorted. */
+  roles: string[];
+  emailThreadId: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type EntityReportEvent = {
+  loopId: string;
+  eventType: string;
+  createdAtIso: string;
+};
+
+export type EntityReportSlice = {
+  entity: {
+    id: string;
+    displayName: string;
+    kind: string;
+    canonicalEmail: string | null;
+    firstSeenAtIso: string;
+    lastSeenAtIso: string;
+  };
+  openLoops: EntityReportLoop[];
+  closedLoops: EntityReportLoop[];
+  openCount: number;
+  closedCount: number;
+  threadCount: number;
+  mostRecentThreadId: string | null;
+  /** Last ~15 loop_events across the entity's loops, newest first. */
+  recentEvents: EntityReportEvent[];
+};
+
+/**
+ * Minimal injectable DB surface for entity assembly — just enough to satisfy the four
+ * reads below. Kept structural so DB-gated tests pass the real Drizzle handle and the
+ * production caller defaults to getDb() (resolved lazily, never at module top level).
+ */
+type EntityReportDb = {
+  // biome-ignore lint/suspicious/noExplicitAny: structural Drizzle query-builder surface
+  select: (...args: any[]) => any;
+};
+
+/**
+ * Assemble the deterministic entity slice. Gathers the entity row, every NON-suppressed
+ * loop linked to it (via loop_entities OR loops.owner/requesterEntityId, deduped), grouped
+ * OPEN vs CLOSED, the distinct linked-thread count + most-recent thread, and the recent
+ * loop_events timeline. All timestamps are ISO strings; ordering is fixed (open by recency,
+ * closed by recency, events newest-first) so the slice is a stable, serialization-safe
+ * context for the model.
+ */
+export async function assembleEntityReport(input: {
+  userId: string;
+  entityId: string;
+  clock?: () => Date;
+  db?: EntityReportDb;
+}): Promise<EntityReportSlice | null> {
+  const { userId, entityId } = input;
+
+  // Lazy imports — getDb() must never run at module load (NODE test env has no DB).
+  const { and, desc, eq, inArray, or } = await import("drizzle-orm");
+  const { entities, loopEntities, loopEvents, loops } = await import("@/db/schema");
+  let db = input.db;
+  if (!db) {
+    const { getDb } = await import("@/db/client");
+    db = getDb() as unknown as EntityReportDb;
+  }
+
+  // ── 1. Entity row (scoped by user) ──────────────────────────────────────────
+  const [entityRow] = await db
+    .select({
+      id: entities.id,
+      displayName: entities.displayName,
+      kind: entities.kind,
+      canonicalEmail: entities.canonicalEmail,
+      firstSeenAt: entities.firstSeenAt,
+      lastSeenAt: entities.lastSeenAt,
+    })
+    .from(entities)
+    .where(and(eq(entities.id, entityId), eq(entities.userId, userId)))
+    .limit(1);
+
+  if (!entityRow) return null;
+
+  // ── 2. Loop ids linked to the entity (join roles + the two FK columns), deduped ──
+  const joinRows: Array<{ loopId: string; role: string }> = await db
+    .select({ loopId: loopEntities.loopId, role: loopEntities.role })
+    .from(loopEntities)
+    .where(eq(loopEntities.entityId, entityId));
+
+  const fkRows: Array<{
+    id: string;
+    ownerEntityId: string | null;
+    requesterEntityId: string | null;
+  }> = await db
+    .select({
+      id: loops.id,
+      ownerEntityId: loops.ownerEntityId,
+      requesterEntityId: loops.requesterEntityId,
+    })
+    .from(loops)
+    .where(
+      and(
+        eq(loops.userId, userId),
+        or(eq(loops.ownerEntityId, entityId), eq(loops.requesterEntityId, entityId)),
+      ),
+    );
+
+  // rolesByLoop: union of join-table roles + the FK-derived owner/requester roles. A loop
+  // can carry the entity as BOTH owner and requester FK — both roles are added.
+  const rolesByLoop = new Map<string, Set<string>>();
+  const addRole = (loopId: string, role: string) => {
+    let set = rolesByLoop.get(loopId);
+    if (!set) {
+      set = new Set<string>();
+      rolesByLoop.set(loopId, set);
+    }
+    set.add(role);
+  };
+  for (const r of joinRows) addRole(r.loopId, r.role);
+  for (const r of fkRows) {
+    if (r.ownerEntityId === entityId) addRole(r.id, "owner");
+    if (r.requesterEntityId === entityId) addRole(r.id, "requester");
+  }
+
+  const loopIds = [...rolesByLoop.keys()];
+  if (loopIds.length === 0) {
+    return {
+      entity: {
+        id: entityRow.id,
+        displayName: entityRow.displayName,
+        kind: entityRow.kind,
+        canonicalEmail: entityRow.canonicalEmail ?? null,
+        firstSeenAtIso: toIso(entityRow.firstSeenAt),
+        lastSeenAtIso: toIso(entityRow.lastSeenAt),
+      },
+      openLoops: [],
+      closedLoops: [],
+      openCount: 0,
+      closedCount: 0,
+      threadCount: 0,
+      mostRecentThreadId: null,
+      recentEvents: [],
+    };
+  }
+
+  // ── 3. Load the linked loops (scoped by user; EXCLUDE suppressed entirely) ───
+  const loopRows: Array<{
+    id: string;
+    status: LoopStatus;
+    summary: string;
+    dueAt: Date | null;
+    confidence: number;
+    emailThreadId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }> = await db
+    .select({
+      id: loops.id,
+      status: loops.status,
+      summary: loops.summary,
+      dueAt: loops.dueAt,
+      confidence: loops.confidence,
+      emailThreadId: loops.emailThreadId,
+      createdAt: loops.createdAt,
+      updatedAt: loops.updatedAt,
+    })
+    .from(loops)
+    .where(and(eq(loops.userId, userId), inArray(loops.id, loopIds)));
+
+  const visibleLoops = loopRows.filter((l) => l.status !== "suppressed");
+
+  const toEntityLoop = (l: (typeof visibleLoops)[number]): EntityReportLoop => ({
+    id: l.id,
+    status: l.status,
+    summary: l.summary,
+    dueAtIso: l.dueAt ? toIso(l.dueAt) : null,
+    confidence: l.confidence,
+    roles: [...(rolesByLoop.get(l.id) ?? new Set<string>())].sort(),
+    emailThreadId: l.emailThreadId,
+    createdAtIso: toIso(l.createdAt),
+    updatedAtIso: toIso(l.updatedAt),
+  });
+
+  const byRecency = (a: EntityReportLoop, b: EntityReportLoop) =>
+    b.updatedAtIso.localeCompare(a.updatedAtIso);
+
+  const openLoops = visibleLoops
+    .filter((l) => ENTITY_OPEN_STATUSES.has(l.status))
+    .map(toEntityLoop)
+    .sort(byRecency);
+  const closedLoops = visibleLoops
+    .filter((l) => ENTITY_CLOSED_STATUSES.has(l.status))
+    .map(toEntityLoop)
+    .sort(byRecency);
+
+  // ── 4. Distinct linked threads + most-recent thread (by newest loop update) ──
+  const threadIds = new Set<string>();
+  let mostRecentThreadId: string | null = null;
+  let mostRecentUpdate = "";
+  for (const l of visibleLoops) {
+    threadIds.add(l.emailThreadId);
+    const u = toIso(l.updatedAt);
+    if (u > mostRecentUpdate) {
+      mostRecentUpdate = u;
+      mostRecentThreadId = l.emailThreadId;
+    }
+  }
+
+  // ── 5. Recent loop_events across the visible loops (last ~15, newest first) ──
+  const visibleLoopIds = visibleLoops.map((l) => l.id);
+  let recentEvents: EntityReportEvent[] = [];
+  if (visibleLoopIds.length > 0) {
+    const eventRows: Array<{ loopId: string; eventType: string; createdAt: Date }> = await db
+      .select({
+        loopId: loopEvents.loopId,
+        eventType: loopEvents.eventType,
+        createdAt: loopEvents.createdAt,
+      })
+      .from(loopEvents)
+      .where(inArray(loopEvents.loopId, visibleLoopIds))
+      .orderBy(desc(loopEvents.createdAt))
+      .limit(15);
+    recentEvents = eventRows.map((e) => ({
+      loopId: e.loopId,
+      eventType: e.eventType,
+      createdAtIso: toIso(e.createdAt),
+    }));
+  }
+
+  return {
+    entity: {
+      id: entityRow.id,
+      displayName: entityRow.displayName,
+      kind: entityRow.kind,
+      canonicalEmail: entityRow.canonicalEmail ?? null,
+      firstSeenAtIso: toIso(entityRow.firstSeenAt),
+      lastSeenAtIso: toIso(entityRow.lastSeenAt),
+    },
+    openLoops,
+    closedLoops,
+    openCount: openLoops.length,
+    closedCount: closedLoops.length,
+    threadCount: threadIds.size,
+    mostRecentThreadId,
+    recentEvents,
+  };
+}
+
+/** Coerce a DB timestamp (Date | string) to a stable ISO string. */
+function toIso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/**
+ * Project the entity slice into a ReportSections shape so the existing email builder,
+ * /r page, and ordinalMap (which all consume sections[].rows[].loop) render an entity
+ * report with NO new view code. Open loops → an "Open" section (most-recent first),
+ * closed → "Recently done". `now` is injected so the result is deterministic.
+ */
+export function entitySliceToSections(slice: EntityReportSlice, now: Date): ReportSections {
+  const toRow = (l: EntityReportLoop): ReportRow => ({
+    loop: {
+      id: l.id,
+      status: l.status,
+      summary: l.summary,
+      ownerText: null,
+      requesterText: null,
+      dueAt: l.dueAtIso ? new Date(l.dueAtIso) : null,
+      confidence: l.confidence,
+      participants: [],
+      sourceQuote: "",
+      sourceEvidenceId: "",
+      createdAt: new Date(l.createdAtIso),
+      updatedAt: new Date(l.updatedAtIso),
+    },
+    dueRelativeMs: l.dueAtIso ? new Date(l.dueAtIso).getTime() - now.getTime() : null,
+    importance: 0,
+  });
+
+  const sections: ReportSection[] = [
+    { key: "needs_you", title: "Open", rows: slice.openLoops.map(toRow) },
+    { key: "recently_done", title: "Recently done", rows: slice.closedLoops.map(toRow) },
+  ];
+
+  return {
+    kind: "entity",
+    scope: { entityId: slice.entity.id, entity: slice.entity.displayName },
+    now,
+    totalOpen: slice.openCount,
     sections,
   };
 }

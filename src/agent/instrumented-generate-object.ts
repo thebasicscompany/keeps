@@ -31,7 +31,8 @@ export type ModelCallPurpose =
   | "draft_nudge"
   | "draft_slack"
   | "draft_calendar"
-  | "summarize_report";
+  | "summarize_report"
+  | "summarize_entity";
 
 // ---------------------------------------------------------------------------
 // Types

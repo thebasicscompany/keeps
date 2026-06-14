@@ -36,12 +36,23 @@ import { buildNudgeReplyTo, DrizzleOutboundEmailStore } from "@/email/outbound";
 import { getEmailSender } from "@/email/sender-factory";
 import type { NudgeRepository } from "@/nudges/repository";
 import { DrizzleNudgeRepository } from "@/nudges/repository";
-import { assembleReport, type ReportKind } from "@/reports/query";
+import {
+  assembleEntityReport,
+  assembleReport,
+  entitySliceToSections,
+  type EntityReportSlice,
+  type ReportKind,
+  type ReportSections,
+} from "@/reports/query";
 import type { ReportsRepository } from "@/reports/repository";
 import { DrizzleReportsRepository } from "@/reports/repository";
 import { buildReportEmail, type ReportEmailKind } from "@/reports/reply";
 import { createReport } from "@/reports/service";
-import { generateSuggestedSummary } from "@/reports/summarize";
+import {
+  generateEntityStatusSummary,
+  generateSuggestedSummary,
+  type SuggestedSummary,
+} from "@/reports/summarize";
 import { hashReportToken } from "@/reports/token";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +70,15 @@ export type GenerateReportPorts = {
    * which case the send is skipped (the report is still persisted).
    */
   loadOwnerEmail: (userId: string) => Promise<string | null>;
+  /**
+   * Phase 7 C1. Assembles the deterministic entity slice from the entity graph. Optional
+   * so legacy callers/tests (no entity path) don't have to provide it; when absent and an
+   * entity report is requested, the core falls back to the legacy substring behavior.
+   */
+  assembleEntitySlice?: (input: {
+    userId: string;
+    entityId: string;
+  }) => Promise<EntityReportSlice | null>;
 };
 
 export type GenerateReportInput = {
@@ -136,25 +156,54 @@ export async function generateReport(
     ports,
   } = input;
 
-  // 1. Load loops live for the scope.
-  const { loops, loopActivity } = await ports.reportsRepository.loadLoopsForScope(
-    userId,
-    scope,
-  );
+  // 1-4. Assemble sections + summary. The ENTITY path (kind==='entity' AND a resolved
+  // entityId is in scope AND the entity-slice port is provided) synthesizes a real status
+  // from the entity graph; otherwise the legacy loop-scope path runs unchanged.
+  const entityId = typeof scope.entityId === "string" ? scope.entityId : null;
+  const useEntityPath =
+    kind === "entity" && entityId !== null && typeof ports.assembleEntitySlice === "function";
 
-  // 2. assembleReport — deterministic inclusion + order (Gotcha 3).
-  const sections = assembleReport({ kind, scope, now, loops, loopActivity });
+  let sections: ReportSections;
+  let summary: SuggestedSummary;
 
-  // 3. ordinalMap from the first ≤3 rows across sections in order (AR-3).
+  if (useEntityPath) {
+    const slice = await ports.assembleEntitySlice!({ userId, entityId: entityId! });
+    if (slice) {
+      sections = entitySliceToSections(slice, now);
+      const status = await generateEntityStatusSummary({ slice, useModel });
+      // Project the entity status into the SuggestedSummary the email/persist layer expects:
+      // headline = the synthesized status; bullets = the top open loop summaries.
+      summary = {
+        headline: status.headline,
+        bullets: slice.openLoops.slice(0, 3).map((l) => l.summary),
+      };
+    } else {
+      // Entity not found → fall through to the legacy path so nothing 500s.
+      const loaded = await ports.reportsRepository.loadLoopsForScope(userId, scope);
+      sections = assembleReport({ kind, scope, now, loops: loaded.loops, loopActivity: loaded.loopActivity });
+      summary = await generateSuggestedSummary({
+        totalOpen: sections.totalOpen,
+        sections: sections.sections,
+        useModel,
+      });
+    }
+  } else {
+    // Legacy path: load loops live for the scope, assemble, summarize.
+    const { loops, loopActivity } = await ports.reportsRepository.loadLoopsForScope(
+      userId,
+      scope,
+    );
+    sections = assembleReport({ kind, scope, now, loops, loopActivity });
+    summary = await generateSuggestedSummary({
+      totalOpen: sections.totalOpen,
+      sections: sections.sections,
+      useModel,
+    });
+  }
+
+  // ordinalMap from the first ≤3 rows across sections in order (AR-3).
   const ordinalMap = buildOrdinalMap(sections.sections);
   const ordinalCount = Object.keys(ordinalMap).length;
-
-  // 4. summarize — model writes ONLY headline+bullets (or deterministic fallback).
-  const summary = await generateSuggestedSummary({
-    totalOpen: sections.totalOpen,
-    sections: sections.sections,
-    useModel,
-  });
 
   // 5. createReport — mints the token internally; returns the plaintext token ONCE.
   //    The persisted summary is the model headline (frozen intent).
@@ -313,20 +362,52 @@ export const generateReportFunction = inngest.createFunction(
       const reportsRepository = new DrizzleReportsRepository();
       const nudgeRepository = new DrizzleNudgeRepository();
 
-      const { loops, loopActivity } = await reportsRepository.loadLoopsForScope(
-        userId,
-        scope,
-      );
-      const sections = assembleReport({ kind, scope, now, loops, loopActivity });
+      // ENTITY path: synthesize a real status from the entity graph when a resolved
+      // entityId is present. Otherwise the legacy loop-scope path runs unchanged.
+      const entityId = typeof scope.entityId === "string" ? scope.entityId : null;
+      let sections: ReportSections;
+      let summary: SuggestedSummary;
+
+      if (kind === "entity" && entityId !== null) {
+        const slice = await assembleEntityReport({ userId, entityId });
+        if (slice) {
+          sections = entitySliceToSections(slice, now);
+          const status = await generateEntityStatusSummary({ slice, useModel: true });
+          summary = {
+            headline: status.headline,
+            bullets: slice.openLoops.slice(0, 3).map((l) => l.summary),
+          };
+        } else {
+          const loaded = await reportsRepository.loadLoopsForScope(userId, scope);
+          sections = assembleReport({
+            kind,
+            scope,
+            now,
+            loops: loaded.loops,
+            loopActivity: loaded.loopActivity,
+          });
+          summary = await generateSuggestedSummary({
+            totalOpen: sections.totalOpen,
+            sections: sections.sections,
+            useModel: true,
+          });
+        }
+      } else {
+        const { loops, loopActivity } = await reportsRepository.loadLoopsForScope(
+          userId,
+          scope,
+        );
+        sections = assembleReport({ kind, scope, now, loops, loopActivity });
+        summary = await generateSuggestedSummary({
+          totalOpen: sections.totalOpen,
+          sections: sections.sections,
+          // Drives the model in production; falls back deterministically if no model.
+          useModel: true,
+        });
+      }
+
       const ordinalMap = buildOrdinalMap(sections.sections);
       const ordinalCount = Object.keys(ordinalMap).length;
-
-      const summary = await generateSuggestedSummary({
-        totalOpen: sections.totalOpen,
-        sections: sections.sections,
-        // Drives the model in production; falls back deterministically if no model.
-        useModel: true,
-      });
 
       const { reportId, token, expiresAt } = await createReport({
         userId,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getKeepsLanguageModel } from "@/agent/model";
 import { instrumentedGenerateObject } from "@/agent/instrumented-generate-object";
+import type { EntityReportSlice } from "@/reports/query";
 
 // ── Minimal local input type (structurally compatible with ReportSections) ───
 // We only read totalOpen + sections[].rows[].loop.summary — nothing else.
@@ -132,4 +133,162 @@ export async function generateSuggestedSummary(
 
   // Return ONLY headline + bullets — the model boundary
   return { headline, bullets };
+}
+
+// ── Entity status synthesis (Phase 7 C1) ──────────────────────────────────────
+//
+// The model writes ONLY a short human STATUS over the FIXED entity slice (AR-8): a 1–2
+// sentence headline + a short state phrase. It may reference only the provided loop
+// summaries/ids — assembleEntityReport decided the slice. No creds → deterministic
+// structured status. Both honor the same boundary.
+
+/** The short, recognized states the entity status collapses to. */
+export type EntityStatusState =
+  | "waiting on them"
+  | "ball in your court"
+  | "stalled"
+  | "mostly done"
+  | "no open items";
+
+export type EntityStatusSummary = {
+  /** 1–2 sentence human status. */
+  headline: string;
+  /** Short state phrase. */
+  state: string;
+  /** Structured open/closed counts (always deterministic, never model-authored). */
+  openCount: number;
+  closedCount: number;
+};
+
+/**
+ * Deterministic state classification over the slice — used BOTH for the no-creds fallback
+ * and as the state the model is asked to choose from (the model never invents a state).
+ */
+function classifyEntityState(slice: EntityReportSlice): EntityStatusState {
+  if (slice.openCount === 0) {
+    return slice.closedCount > 0 ? "mostly done" : "no open items";
+  }
+  // Any open loop the user owns or is awaited on → their court; else waiting on them.
+  const ownerOpen = slice.openLoops.some((l) => l.roles.includes("owner"));
+  const waitingOnMe = slice.openLoops.some((l) => l.status === "waiting_on_me");
+  if (waitingOnMe || ownerOpen) return "ball in your court";
+  const allWaitingOnOther = slice.openLoops.every(
+    (l) => l.status === "waiting_on_other" || l.status === "snoozed",
+  );
+  if (allWaitingOnOther) return "waiting on them";
+  return "stalled";
+}
+
+function deterministicEntityStatus(slice: EntityReportSlice): EntityStatusSummary {
+  const { displayName } = slice.entity;
+  const state = classifyEntityState(slice);
+  const latest = slice.openLoops[0] ?? slice.closedLoops[0] ?? null;
+  const latestClause = latest ? `; latest: ${latest.summary}` : "";
+  const headline =
+    `${displayName}: ${slice.openCount} open, ${slice.closedCount} closed${latestClause}.`;
+  return { headline, state, openCount: slice.openCount, closedCount: slice.closedCount };
+}
+
+export type GenerateEntityStatusInput = {
+  slice: EntityReportSlice;
+  useModel?: boolean;
+  /**
+   * Test/DI seam. Returns the model's status (headline + state) or null to trigger the
+   * deterministic fallback. Any extra fields on the returned object are dropped.
+   */
+  generateStatus?: (input: {
+    displayName: string;
+    openCount: number;
+    closedCount: number;
+    state: EntityStatusState;
+    openSummaries: string[];
+    closedSummaries: string[];
+  }) => Promise<{ headline: string; state: string } | null>;
+};
+
+async function defaultGenerateEntityStatus(input: {
+  displayName: string;
+  openCount: number;
+  closedCount: number;
+  state: EntityStatusState;
+  openSummaries: string[];
+  closedSummaries: string[];
+}): Promise<{ headline: string; state: string } | null> {
+  const model = getKeepsLanguageModel();
+  if (!model) return null;
+
+  const result = await instrumentedGenerateObject({
+    purpose: "summarize_entity",
+    model,
+    // STRICT schema: all required, optionality via .nullable() only.
+    schema: z.object({
+      headline: z.string(),
+      state: z.string(),
+    }),
+    schemaName: "KeepsEntityStatus",
+    system:
+      "Write a 1-2 sentence status for ONE entity over their already-selected loops, plus a short state phrase. Do not invent or omit loops; only rephrase the provided summaries. Use the suggested state unless the provided loops clearly contradict it.",
+    prompt: [
+      `Entity: ${input.displayName}`,
+      `Open loops: ${input.openCount}, Closed loops: ${input.closedCount}`,
+      `Suggested state: ${input.state}`,
+      "Open items:",
+      ...input.openSummaries.map((s, i) => `${i + 1}. ${s}`),
+      "Recently closed:",
+      ...input.closedSummaries.map((s, i) => `${i + 1}. ${s}`),
+    ].join("\n"),
+  });
+
+  const object = result.object as { headline: string; state: string };
+  return { headline: object.headline, state: object.state };
+}
+
+export async function generateEntityStatusSummary(
+  input: GenerateEntityStatusInput,
+): Promise<EntityStatusSummary> {
+  const { slice, useModel = false } = input;
+  const generateStatus = input.generateStatus ?? defaultGenerateEntityStatus;
+
+  const fallback = deterministicEntityStatus(slice);
+
+  // Deterministic path (default + no-creds): structured status. Tests rely on this.
+  if (!useModel) {
+    return fallback;
+  }
+
+  // Don't hand the model an entity with zero loops — nothing to rephrase, it hallucinates.
+  if (slice.openCount === 0 && slice.closedCount === 0) {
+    return fallback;
+  }
+
+  const openSummaries = slice.openLoops.slice(0, 5).map((l) => l.summary);
+  const closedSummaries = slice.closedLoops.slice(0, 3).map((l) => l.summary);
+
+  let modelResult: { headline: string; state: string } | null = null;
+  try {
+    modelResult = await generateStatus({
+      displayName: slice.entity.displayName,
+      openCount: slice.openCount,
+      closedCount: slice.closedCount,
+      state: fallback.state as EntityStatusState,
+      openSummaries,
+      closedSummaries,
+    });
+  } catch {
+    return fallback;
+  }
+
+  if (modelResult === null) {
+    return fallback;
+  }
+
+  const rawHeadline =
+    typeof modelResult.headline === "string" ? modelResult.headline.trim() : "";
+  const headline = rawHeadline.length > 0 ? rawHeadline : fallback.headline;
+
+  const rawState = typeof modelResult.state === "string" ? modelResult.state.trim() : "";
+  const state = rawState.length > 0 ? rawState : fallback.state;
+
+  // Counts are ALWAYS the deterministic slice values — never model-authored.
+  return { headline, state, openCount: slice.openCount, closedCount: slice.closedCount };
 }
