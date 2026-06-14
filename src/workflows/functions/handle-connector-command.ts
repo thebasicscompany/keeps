@@ -715,14 +715,16 @@ export const handleConnectorCommandFunction = inngest.createFunction(
         });
       });
 
-      // Confirmation one-liner.
+      // Contextual confirmation, threaded onto the approval email's subject.
       await step.run("confirm-executed", async () => {
         const ownerEmail = await new DrizzleOwnerResolver().findOwnerEmail(userId);
         if (ownerEmail) {
-          await sendSystemEmail({
-            email: { to: ownerEmail, subject: "Re: Approval", textBody: executedConfirmationLine(executed) },
-            sender: getEmailSender(),
+          const { subject, textBody } = buildConnectorOutcomeEmail({
+            payload: frozenPayload,
+            whenText: command.whenText ?? null,
+            outcome: { type: "executed", status: executed.status },
           });
+          await sendSystemEmail({ email: { to: ownerEmail, subject, textBody }, sender: getEmailSender() });
         }
       });
 
@@ -734,14 +736,12 @@ export const handleConnectorCommandFunction = inngest.createFunction(
       await new DrizzleConnectorActionsRepository().markCancelled(created.connectorActionId);
       const ownerEmail = await new DrizzleOwnerResolver().findOwnerEmail(userId);
       if (ownerEmail) {
-        await sendSystemEmail({
-          email: {
-            to: ownerEmail,
-            subject: "Re: Approval",
-            textBody: decision === "rejected" ? "Got it — I won't run that." : "Cancelled — that action won't run.",
-          },
-          sender: getEmailSender(),
+        const { subject, textBody } = buildConnectorOutcomeEmail({
+          payload: frozenPayload,
+          whenText: command.whenText ?? null,
+          outcome: { type: decision === "rejected" ? "rejected" : "cancelled" },
         });
+        await sendSystemEmail({ email: { to: ownerEmail, subject, textBody }, sender: getEmailSender() });
       }
     });
 
@@ -786,17 +786,65 @@ async function emitOutcome(input: {
   // 'executing' / 'cancelled' / 'not_found' emit nothing (no terminal outcome here).
 }
 
-/** One-line confirmation for the user after an execute-once attempt. */
-export function executedConfirmationLine(executed: ExecuteConnectorActionResult): string {
-  switch (executed.status) {
+export type ConnectorOutcome =
+  | { type: "executed"; status: ExecuteConnectorActionResult["status"] }
+  | { type: "rejected" }
+  | { type: "cancelled" };
+
+/**
+ * Builds the user-facing outcome email after a connector action resolves.
+ *
+ * Replaces the old context-free "Re: Approval" / "Approved — done." reply:
+ *   - the SUBJECT mirrors the approval email's subject, so the confirm + outcome
+ *     thread into ONE conversation in the user's inbox instead of arriving as a
+ *     bare, orphaned "Approved" note;
+ *   - the BODY names exactly what happened (which event/recipient), so a
+ *     completion notice is never sent without context.
+ *
+ * `whenText` is the human-friendly time from the original command (the frozen
+ * payload only carries the ISO `whenAt`).
+ */
+export function buildConnectorOutcomeEmail(input: {
+  payload: ConnectorActionPayload;
+  whenText: string | null;
+  outcome: ConnectorOutcome;
+}): { subject: string; textBody: string } {
+  const { payload, whenText, outcome } = input;
+
+  if (payload.kind === "calendar_event") {
+    const title = payload.eventTitle ?? "the event";
+    const when = whenText ?? payload.whenAt;
+    const what = `"${title}" to your calendar${when ? ` for ${when}` : ""}`;
+    return {
+      subject: `Re: Confirm: calendar event — ${payload.eventTitle ?? "event"}`,
+      textBody: connectorOutcomeLine(outcome, "add", "added", what),
+    };
+  }
+
+  const what = `your Slack message to ${payload.recipientName ?? "them"}`;
+  return {
+    subject: `Re: Approval needed: Slack message to ${payload.recipientName ?? "someone"}`,
+    textBody: connectorOutcomeLine(outcome, "send", "sent", what),
+  };
+}
+
+function connectorOutcomeLine(
+  outcome: ConnectorOutcome,
+  verb: string,
+  pastVerb: string,
+  what: string,
+): string {
+  if (outcome.type === "rejected") return `Got it — I won't ${verb} ${what}.`;
+  if (outcome.type === "cancelled") return `Cancelled — I won't ${verb} ${what}.`;
+  switch (outcome.status) {
     case "completed":
-      return "Approved — done.";
+      return `Done — I ${pastVerb} ${what}.`;
     case "denied":
-      return "Approved, but the action was blocked by policy. Nothing ran.";
+      return `I couldn't ${verb} ${what} — it was blocked by policy, so nothing ran.`;
     case "failed":
-      return "Approved, but the action failed to run. I'll let you know if I can retry.";
+      return `I tried to ${verb} ${what}, but it failed to run. I'll let you know if I can retry.`;
     default:
-      return "Approved.";
+      return `I processed ${what}.`;
   }
 }
 

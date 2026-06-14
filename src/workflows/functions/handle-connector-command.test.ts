@@ -32,8 +32,9 @@ import {
   providerForKind,
   resolveCommandRecipient,
   summarizeCommand,
-  executedConfirmationLine,
+  buildConnectorOutcomeEmail,
 } from "@/workflows/functions/handle-connector-command";
+import type { ConnectorActionPayload } from "@/agent/schemas";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -409,18 +410,69 @@ describe("createApprovalAndAction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// executedConfirmationLine
+// buildConnectorOutcomeEmail
 // ---------------------------------------------------------------------------
 
-describe("executedConfirmationLine", () => {
-  it("maps execute outcomes to user-facing lines", () => {
-    expect(executedConfirmationLine({ status: "completed", result: {}, cached: false })).toContain("done");
-    expect(
-      executedConfirmationLine({ status: "denied", error: { code: "x", message: "m", retryable: false } }),
-    ).toContain("policy");
-    expect(
-      executedConfirmationLine({ status: "failed", error: { code: "x", message: "m", retryable: true } }),
-    ).toContain("failed");
+describe("buildConnectorOutcomeEmail", () => {
+  const destination = { kind: "self" as const, nameText: null, emailText: null };
+  const calPayload: ConnectorActionPayload = {
+    kind: "calendar_event",
+    destination,
+    eventTitle: "SOC 2 review",
+    whenAt: "2026-06-15T16:00:00.000Z",
+    durationMinutes: 30,
+    reminderMinutesBefore: null,
+    description: null,
+    attendees: null,
+  };
+  const slackPayload: ConnectorActionPayload = {
+    kind: "slack_dm",
+    destination,
+    message: "ping",
+    channel: "U123",
+    recipientName: "Maya",
+    recipientEmail: null,
+  };
+
+  it("calendar completed → names the event + time, threads onto the approval subject", () => {
+    const { subject, textBody } = buildConnectorOutcomeEmail({
+      payload: calPayload,
+      whenText: "tomorrow at 4pm",
+      outcome: { type: "executed", status: "completed" },
+    });
+    expect(subject).toBe("Re: Confirm: calendar event — SOC 2 review");
+    expect(textBody).toContain("SOC 2 review");
+    expect(textBody).toContain("tomorrow at 4pm");
+    expect(textBody.toLowerCase()).toContain("added");
+  });
+
+  it("slack completed → names the recipient", () => {
+    const { subject, textBody } = buildConnectorOutcomeEmail({
+      payload: slackPayload,
+      whenText: null,
+      outcome: { type: "executed", status: "completed" },
+    });
+    expect(subject).toContain("Slack message to Maya");
+    expect(textBody).toContain("Maya");
+    expect(textBody.toLowerCase()).toContain("sent");
+  });
+
+  it("cancelled / failed still carry context", () => {
+    const cancelled = buildConnectorOutcomeEmail({
+      payload: calPayload,
+      whenText: "tomorrow at 4pm",
+      outcome: { type: "cancelled" },
+    }).textBody;
+    expect(cancelled.toLowerCase()).toContain("cancelled");
+    expect(cancelled).toContain("SOC 2 review");
+
+    const failed = buildConnectorOutcomeEmail({
+      payload: slackPayload,
+      whenText: null,
+      outcome: { type: "executed", status: "failed" },
+    }).textBody;
+    expect(failed.toLowerCase()).toContain("failed");
+    expect(failed).toContain("Maya");
   });
 });
 
