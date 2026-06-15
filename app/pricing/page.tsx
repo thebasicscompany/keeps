@@ -42,7 +42,7 @@ const tiers: Tier[] = [
       "Company knowledge graph & reports",
       "Email support",
     ],
-    cta: { label: "Get started", href: "/sign-up", external: false },
+    cta: { label: "Get started", href: "/settings/billing", external: false },
     featured: false,
   },
   {
@@ -57,7 +57,7 @@ const tiers: Tier[] = [
       "Shared team workspace",
       "Priority support",
     ],
-    cta: { label: "Get started", href: "/sign-up", external: false },
+    cta: { label: "Get started", href: "/settings/billing", external: false },
     featured: true,
   },
   {
