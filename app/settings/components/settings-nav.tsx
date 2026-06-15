@@ -8,11 +8,13 @@
  */
 
 import Link from "next/link";
+import type { Route } from "next";
 import { usePathname } from "next/navigation";
 
 const tabs = [
   { label: "Graph", href: "/settings/graph" },
   { label: "Connectors", href: "/settings/connectors" },
+  { label: "Billing", href: "/settings/billing" },
   { label: "Privacy", href: "/settings/privacy" },
   { label: "Data", href: "/settings/data" },
   { label: "Audit", href: "/settings/audit" },
@@ -32,7 +34,7 @@ export function SettingsNav() {
         return (
           <Link
             key={href}
-            href={href}
+            href={href as Route}
             className={[
               "keeps-mono inline-flex h-9 items-center rounded-[4px] px-3 text-[12px] uppercase transition-colors",
               isActive

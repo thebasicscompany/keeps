@@ -63,8 +63,11 @@ const controlItems = [
   },
 ];
 
+const CONTACT_URL = "https://cal.com/shreshth-saride-e450ux/30min";
+
 const navItems = [
   { label: "How it works", href: "#how" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Privacy", href: "/privacy" },
   { label: "Start", href: "/get-started" },
 ];
@@ -161,6 +164,16 @@ function Header() {
               {item.label}
             </a>
           ))}
+          <a
+            href={CONTACT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            style={{ transitionDelay: open ? `${80 + navItems.length * 55}ms` : "0ms" }}
+            tabIndex={open ? 0 : -1}
+          >
+            Contact
+          </a>
         </nav>
       </div>
       <header className="keeps-header">
@@ -175,6 +188,14 @@ function Header() {
             ))}
           </div>
           <div className="keeps-nav-actions">
+            <a
+              className="keeps-button keeps-button-secondary keeps-signin"
+              href={CONTACT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Contact
+            </a>
             {isSignedIn ? (
               <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/settings/graph" as Route}>
                 Home
@@ -579,6 +600,14 @@ function Footer() {
       <div className="keeps-footer-inner">
         <KeepsMark />
         <span>Frictionless company intelligence for agentic teams.</span>
+        <a
+          className="keeps-button keeps-button-secondary"
+          href={CONTACT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Contact
+        </a>
       </div>
       <div className="keeps-side" />
     </footer>
