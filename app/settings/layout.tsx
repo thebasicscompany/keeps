@@ -20,7 +20,7 @@ import { SettingsNav } from "./components/settings-nav";
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
-    <main className="keeps-home relative z-10 min-h-svh">
+    <main className="keeps-home relative min-h-svh">
       <div className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col px-5 py-9 sm:px-0">
         {/* Top header -------------------------------------------------------- */}
         <header className="mb-6">
