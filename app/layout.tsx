@@ -21,7 +21,7 @@ const bricolage = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: "Keeps",
-  description: "Private loop memory for work email.",
+  description: "Frictionless company intelligence for agentic teams.",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },

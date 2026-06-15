@@ -8,18 +8,18 @@ import { useState } from "react";
 const workflowSteps = [
   {
     eyebrow: "01 / Capture",
-    title: "Forward, CC, or email it.",
-    body: "Keeps reads only the work you explicitly send and turns it into durable loop memory.",
+    title: "Capture without surveillance.",
+    body: "Keeps only sees the threads you choose, so context is gathered deliberately, not by watching everything.",
   },
   {
     eyebrow: "02 / Track",
-    title: "Open loops stay visible.",
-    body: "Owners, due dates, source quotes, and waiting states stay organized before anything slips.",
+    title: "Turn work into memory.",
+    body: "Keeps captures open loops, decisions, owners, deadlines, and source context before they disappear in inboxes.",
   },
   {
     eyebrow: "03 / Act",
-    title: "Nothing leaves without your okay.",
-    body: "Approve the Slack DM, calendar booking, or follow-up before Keeps moves on your behalf.",
+    title: "Operationalize it instantly.",
+    body: "Get reminders, approval-ready drafts, follow-ups, and small automations before anything slips.",
   },
 ];
 
@@ -47,18 +47,18 @@ const loops = [
 const controlItems = [
   {
     number: "01",
-    title: "Explicit capture",
-    body: "Keeps works from the messages you forward, CC, or send directly.",
+    title: "Permissioned capture",
+    body: "Keeps works from the messages you forward, CC, or send directly, not from everything your company says.",
   },
   {
     number: "02",
-    title: "Source-backed memory",
-    body: "Every loop keeps its originating email, owner, due date, and waiting state attached.",
+    title: "Company intelligence",
+    body: "Every captured loop keeps its source email, owner, deadline, decision, and next action attached.",
   },
   {
     number: "03",
-    title: "Approval before action",
-    body: "Slack DMs, calendar holds, and follow-ups wait for your okay before anything leaves.",
+    title: "Agent-ready action",
+    body: "Drafts, nudges, and lightweight automations wait for approval before anything leaves.",
   },
 ];
 
@@ -198,7 +198,7 @@ function Header() {
 
 function AnimatedLoopSystem() {
   return (
-    <div className="keeps-animation-shell" aria-label="Forward or CC Keeps to turn email into tracked loops">
+    <div className="keeps-animation-shell" aria-label="Forward or CC Keeps to turn email into company intelligence">
       <svg
         className="keeps-workflow-svg"
         fill="none"
@@ -206,8 +206,8 @@ function AnimatedLoopSystem() {
         viewBox="0 0 820 690"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <title>Email-first Keeps workflow diagram</title>
-        <desc>A work email highlights CC keeps@keeps.email or forward to Keeps, then produces tracked loops and an approval queue.</desc>
+        <title>Keeps company intelligence workflow</title>
+        <desc>A chosen work email highlights CC keeps@keeps.email, then becomes source-backed memory, reminders, and approval-ready actions.</desc>
         <defs>
           <pattern id="keeps-grid" width="42" height="42" patternUnits="userSpaceOnUse">
             <path d="M42 0H0V42" stroke="rgba(30,107,79,.12)" strokeWidth="1" />
@@ -251,7 +251,7 @@ function AnimatedLoopSystem() {
         <g className="keeps-source-panel" filter="url(#soft-shadow)">
           <rect x="64" y="144" width="304" height="286" rx="4" fill="#FAFAF8" stroke="#14140F" strokeOpacity=".24" strokeWidth="1.5" />
           <rect x="64" y="144" width="304" height="40" rx="4" fill="#14140F" />
-          <text className="keeps-svg-label keeps-svg-label-light" x="86" y="170">01 / email capture</text>
+          <text className="keeps-svg-label keeps-svg-label-light" x="86" y="170">01 / permissioned capture</text>
           <circle cx="340" cy="164" r="5" fill="#C1F5DF" />
 
           <text className="keeps-svg-label" x="88" y="216">To</text>
@@ -279,14 +279,14 @@ function AnimatedLoopSystem() {
           <rect x="408" y="146" width="32" height="32" rx="4" fill="#C1F5DF" stroke="#1E6B4F" />
           <path d="M418 162H430" stroke="#1E6B4F" strokeWidth="2" />
           <path d="M424 156V168" stroke="#1E6B4F" strokeWidth="2" />
-          <text className="keeps-svg-title keeps-trace-title" x="454" y="168">Keeps Loop Trace</text>
-          <text className="keeps-svg-label" x="454" y="190">live from copied email</text>
+          <text className="keeps-svg-title keeps-trace-title" x="454" y="168">Keeps Trace</text>
+          <text className="keeps-svg-label" x="454" y="190">from chosen email</text>
 
           <g className="keeps-trace-step keeps-trace-step-one">
             <rect x="408" y="214" width="324" height="50" rx="4" fill="#F6F8F5" stroke="#DDE4DF" />
             <text className="keeps-svg-chip-text" x="424" y="244">1.</text>
-            <text className="keeps-svg-small keeps-svg-dark" x="454" y="238">Read thread copied to Keeps</text>
-            <text className="keeps-svg-note" x="454" y="256">source: Priya email</text>
+            <text className="keeps-svg-small keeps-svg-dark" x="454" y="238">Read chosen source thread</text>
+            <text className="keeps-svg-note" x="454" y="256">permissioned capture</text>
           </g>
           <g className="keeps-trace-step keeps-trace-step-two">
             <rect x="408" y="274" width="324" height="58" rx="4" fill="#E9FBF4" stroke="#1E6B4F" strokeWidth="1.5" />
@@ -309,7 +309,7 @@ function AnimatedLoopSystem() {
 
           <g className="keeps-status-row">
             <rect className="keeps-status-line" x="408" y="464" width="324" height="22" rx="3" fill="#14140F" />
-            <text className="keeps-svg-chip-text keeps-svg-label-light" x="422" y="479">Executing step 2: tracking 3 open loops</text>
+            <text className="keeps-svg-chip-text keeps-svg-label-light" x="422" y="479">Building intelligence: 3 loops found</text>
           </g>
         </g>
 
@@ -337,8 +337,8 @@ function AnimatedLoopSystem() {
         <circle className="keeps-packet keeps-packet-three" r="5" />
       </svg>
       <div className="keeps-visual-caption">
-        <span>Cc keeps@keeps.email or forward a thread</span>
-        <strong>Email-first capture</strong>
+        <span>Forwarded email becomes operational intelligence</span>
+        <strong>Operational intelligence</strong>
       </div>
     </div>
   );
@@ -348,8 +348,8 @@ function LoopConsole() {
   return (
     <Card className="keeps-console-card">
       <div className="keeps-console-head">
-        <span className="keeps-console-kicker">From Priya's email</span>
-        <strong>Needs you before Friday</strong>
+        <span className="keeps-console-kicker">From chosen email</span>
+        <strong>Captured intelligence you can act on</strong>
       </div>
       <div className="keeps-loop-list">
         {loops.map((loop, index) => (
@@ -375,22 +375,25 @@ function Hero() {
         <div className="keeps-hero-grid">
           <div className="keeps-hero-left">
             <Card className="keeps-hero-copy-card" dots={false}>
-              <p className="keeps-eyebrow">For founders & operators</p>
+              <p className="keeps-eyebrow">For agentic teams</p>
               <h1>
-                Forward it.
+                Company
                 <br />
-                Keeps remembers.
+                intelligence,
+                <br />
+                captured.
               </h1>
               <p className="keeps-hero-copy">
-                Email it your work. Keeps pulls out every loop you open, nudges you before
-                things slip, and only with your okay gets them done.
+                Keeps turns the emails you forward, CC, or send into a private learning
+                loop for your company: open loops, reminders, approvals, and agent-ready
+                context, without giving an agent access to everything.
               </p>
             </Card>
             <Card className="keeps-hero-action-card">
               <Link className="keeps-button keeps-button-primary" href={"/get-started" as Route}>
                 Get started
               </Link>
-              <p>Explicit capture: Keeps only ever sees what you send it.</p>
+              <p>Start with reminders and follow-ups. Build toward company memory your agents can use.</p>
             </Card>
           </div>
           <Card className="keeps-hero-visual-card" dots={false}>
@@ -427,10 +430,10 @@ function ControlSection() {
       <div className="keeps-control-grid">
         <Card className="keeps-control-copy" dots={false}>
           <p className="keeps-eyebrow">03 / Control</p>
-          <h2>Private memory. Explicit action.</h2>
+          <h2>Private intelligence. Explicit action.</h2>
           <p>
-            Keeps is built for sensitive founder and operator work: small surface area,
-            source-backed recall, and approval before anything is sent.
+            Keeps helps your company compound what people already know while keeping
+            capture permissioned and actions approval-gated.
           </p>
         </Card>
         <Card className="keeps-control-panel">
@@ -461,7 +464,7 @@ function Footer() {
       <div className="keeps-side" />
       <div className="keeps-footer-inner">
         <KeepsMark />
-        <span>Private loop memory for work email.</span>
+        <span>Frictionless company intelligence for agentic teams.</span>
       </div>
       <div className="keeps-side" />
     </footer>
