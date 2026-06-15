@@ -107,6 +107,16 @@ export default function PricingPage() {
               Every member gets the full product. Choose the plan that fits your
               team size.
             </p>
+            <div style={{ marginTop: "20px" }}>
+              <a
+                className="keeps-button keeps-button-secondary"
+                href={CONTACT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Book a call
+              </a>
+            </div>
           </div>
 
           {/* Tiers */}
