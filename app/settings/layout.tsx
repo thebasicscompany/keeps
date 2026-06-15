@@ -17,11 +17,11 @@ import { SettingsNav } from "./components/settings-nav";
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
-    <main className="relative z-10 min-h-svh bg-[#FAFAF8] text-[#14140F]">
+    <main className="keeps-home relative z-10 min-h-svh">
       <div className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col px-5 py-9 sm:px-0">
         {/* Top header -------------------------------------------------------- */}
         <header className="mb-6">
-          <h1 className="mb-3 text-[22px] font-bold leading-tight tracking-normal text-[#14140F]">
+          <h1 className="mb-3 text-[26px] font-light leading-tight tracking-[-0.01em] text-[#14140F]">
             Home
           </h1>
           <SettingsNav />

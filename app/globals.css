@@ -180,6 +180,20 @@
   letter-spacing: 0;
 }
 
+/* Signed-in "Home" area — aligned to the landing's type + palette. */
+.keeps-home {
+  background: #e7e5e4;
+  color: #14140f;
+  font-family: "Keeps Extend Systemia", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 300;
+  letter-spacing: 0;
+}
+
+.keeps-mono {
+  font-family: "Keeps Extend Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+}
+
 .keeps-page *,
 .keeps-page *::before,
 .keeps-page *::after {

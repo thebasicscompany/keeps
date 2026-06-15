@@ -38,7 +38,7 @@ function fmtDate(iso: string): string {
 function KindBadge({ kind }: { kind: GraphEntity["kind"] }) {
   const label = kind === "company" ? "Company" : kind === "person" ? "Person" : "Mailbox";
   return (
-    <span className="inline-block rounded-none border border-[#C1F5DF] bg-[#C1F5DF] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#14140F]">
+    <span className="keeps-mono inline-block rounded-[3px] border border-[#C1F5DF] bg-[#C1F5DF] px-2 py-0.5 text-[10px] uppercase text-[#14140F]">
       {label}
     </span>
   );
@@ -69,7 +69,7 @@ function LoopList({ loops }: { loops: GraphLoop[] }) {
 function PersonChip({ person }: { person: GraphEntity }) {
   const initial = person.displayName.trim().charAt(0).toUpperCase() || "?";
   return (
-    <span className="inline-flex items-center gap-2 rounded-none border border-[#E2E2DD] bg-[#FAFAF8] px-2.5 py-1 text-xs text-[#14140F]">
+    <span className="inline-flex items-center gap-2 rounded-[4px] border border-[#DEDED8] bg-[#F5F5F1] px-2.5 py-1 text-xs text-[#14140F]">
       <span className="grid h-5 w-5 place-items-center rounded-full bg-[#1E6B4F] text-[10px] font-bold text-white">
         {initial}
       </span>
@@ -105,7 +105,7 @@ export default async function GraphPage() {
           Nothing here came from scanning your inbox.
         </p>
         {!isEmpty ? (
-          <p className="mt-2.5 text-xs font-semibold text-[#1E6B4F]">
+          <p className="keeps-mono mt-2.5 text-xs uppercase text-[#1E6B4F]">
             {totals.companies} {totals.companies === 1 ? "company" : "companies"} ·{" "}
             {totals.people} {totals.people === 1 ? "person" : "people"} ·{" "}
             {totals.openLoops} open {totals.openLoops === 1 ? "loop" : "loops"}
@@ -141,8 +141,8 @@ export default async function GraphPage() {
                   <Counts open={company.openCount} closed={company.closedCount} />
                   <LoopList loops={company.openLoops} />
                   {company.people.length > 0 ? (
-                    <div className="mt-4 border-t border-[#E2E2DD] pt-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-[#6F6F66]">
+                    <div className="mt-4 border-t border-[#DEDED8] pt-3">
+                      <div className="keeps-mono text-[11px] uppercase text-[#6F6F66]">
                         People at {company.displayName}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -159,7 +159,7 @@ export default async function GraphPage() {
 
           {people.length > 0 ? (
             <section className="space-y-3">
-              <div className="px-1 pt-1 text-xs font-semibold uppercase tracking-wide text-[#6F6F66]">
+              <div className="keeps-mono px-1 pt-1 text-[11px] uppercase text-[#6F6F66]">
                 Other people
               </div>
               {people.map((person) => (

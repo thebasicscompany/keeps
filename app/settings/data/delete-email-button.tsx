@@ -60,7 +60,7 @@ export function DeleteEmailButton({ inboundEmailId, subject }: Props) {
         type="button"
         onClick={handleClick}
         disabled={pending}
-        className="h-9 rounded-none border border-[#E2E2DD] bg-white px-3 text-xs font-semibold text-[#B42318] transition-colors hover:border-[#B42318] hover:bg-[#FEF3F2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B42318]/20 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-9 rounded-[4px] border border-[#DEDED8] bg-[#FAFAF8] px-3 text-xs font-semibold text-[#B42318] transition-colors hover:border-[#B42318] hover:bg-[#FEF3F2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B42318]/20 disabled:cursor-not-allowed disabled:opacity-60"
         aria-label={`Delete email: ${subject}`}
       >
         {pending ? "Deleting…" : "Delete this email and everything derived from it"}

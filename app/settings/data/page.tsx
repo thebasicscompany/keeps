@@ -199,11 +199,11 @@ export default async function DataPage({ searchParams }: PageProps) {
         </p>
 
         {emails.length === 0 ? (
-          <div className="flex h-24 items-center justify-center rounded-none border border-dashed border-[#E2E2DD] text-sm text-[#6F6F66]">
+          <div className="flex h-24 items-center justify-center rounded-none border border-dashed border-[#DEDED8] text-sm text-[#6F6F66]">
             No emails received yet
           </div>
         ) : (
-          <ul className="divide-y divide-[#E2E2DD]" aria-label="Inbound emails">
+          <ul className="divide-y divide-[#DEDED8]" aria-label="Inbound emails">
             {emails.map((email) => (
               <li
                 key={email.id}

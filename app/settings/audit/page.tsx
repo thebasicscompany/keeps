@@ -28,7 +28,7 @@ export interface AuditTableProps {
 export function AuditTable({ rows }: AuditTableProps) {
   if (rows.length === 0) {
     return (
-      <div className="flex h-32 items-center justify-center rounded-none border border-dashed border-[#E2E2DD] text-sm text-[#6F6F66]">
+      <div className="flex h-32 items-center justify-center rounded-none border border-dashed border-[#DEDED8] text-sm text-[#6F6F66]">
         No audit events yet.
       </div>
     );
@@ -38,24 +38,24 @@ export function AuditTable({ rows }: AuditTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-[#E2E2DD]">
+          <tr className="border-b border-[#DEDED8]">
             <th
               scope="col"
-              className="py-2 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+              className="keeps-mono py-2 pr-4 text-left text-[11px] uppercase text-[#6F6F66]"
               style={{ minWidth: "9rem" }}
             >
               When
             </th>
             <th
               scope="col"
-              className="py-2 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+              className="keeps-mono py-2 pr-4 text-left text-[11px] uppercase text-[#6F6F66]"
               style={{ minWidth: "12rem" }}
             >
               Event
             </th>
             <th
               scope="col"
-              className="py-2 text-left text-xs font-semibold uppercase tracking-wider text-[#6F6F66]"
+              className="keeps-mono py-2 text-left text-[11px] uppercase text-[#6F6F66]"
             >
               Details
             </th>
@@ -67,7 +67,7 @@ export function AuditTable({ rows }: AuditTableProps) {
             return (
               <tr
                 key={row.id}
-                className="border-b border-[#E2E2DD] last:border-0 hover:bg-[#FAFAF8]"
+                className="border-b border-[#DEDED8] last:border-0 hover:bg-[#FAFAF8]"
               >
                 {/* Timestamp */}
                 <td className="py-2.5 pr-4 align-top font-mono text-xs text-[#6F6F66] whitespace-nowrap">
@@ -184,7 +184,7 @@ export default async function AuditPage() {
         </p>
         <a
           href="/api/data/export"
-          className="inline-flex h-9 items-center gap-1.5 rounded-none border border-[#E2E2DD] bg-white px-4 text-sm font-semibold text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14140F]/20"
+          className="keeps-mono inline-flex h-9 items-center gap-1.5 rounded-[4px] border border-[#DEDED8] bg-[#FAFAF8] px-4 text-[12px] uppercase text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14140F]/20"
           aria-label="Download all data as JSON"
         >
           {/* Download icon */}

@@ -54,7 +54,7 @@ export function Toggle({ name, id, defaultChecked = false }: ToggleProps) {
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(30,107,79,0.32)]",
           checked
             ? "border-[#1E6B4F] bg-[#C1F5DF]"
-            : "border-[#E2E2DD] bg-[#F4F4F0]",
+            : "border-[#DEDED8] bg-[#F4F4F0]",
         ].join(" ")}
       >
         {/* Thumb */}

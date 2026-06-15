@@ -60,7 +60,7 @@ export function ExportDataButton() {
         type="button"
         onClick={handleClick}
         disabled={pending}
-        className="h-11 w-full rounded-none border border-[#E2E2DD] bg-white px-5 text-sm font-semibold text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14140F]/20 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-11 w-full rounded-[4px] border border-[#DEDED8] bg-[#FAFAF8] px-5 text-sm font-semibold text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14140F]/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Preparing export…" : "Export my data"}
       </button>

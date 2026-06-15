@@ -23,7 +23,7 @@ export function SettingsNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex gap-1" aria-label="Settings navigation">
+    <nav className="flex flex-wrap gap-1" aria-label="Settings navigation">
       {tabs.map(({ label, href }) => {
         // Exact match for /settings; prefix match for deeper pages.
         const isActive =
@@ -34,7 +34,7 @@ export function SettingsNav() {
             key={href}
             href={href}
             className={[
-              "rounded-none px-4 py-2 text-sm font-semibold transition-colors",
+              "keeps-mono inline-flex h-9 items-center rounded-[4px] px-3 text-[12px] uppercase transition-colors",
               isActive
                 ? "bg-[#C1F5DF] text-[#14140F]"
                 : "text-[#6F6F66] hover:bg-[#E9FBF4] hover:text-[#14140F]",
