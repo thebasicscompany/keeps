@@ -20,27 +20,40 @@ function providerLabel(provider: ConnectorProvider): string {
   return provider === "slack" ? "Slack" : "Google Calendar";
 }
 
+function commandPrefix(provider: ConnectorProvider): string {
+  return provider === "slack" ? "@Slack" : "@Calendar";
+}
+
 export function buildConnectorMissingEmail(input: ConnectorMissingEmailInput): {
   subject: string;
   textBody: string;
   html: string;
 } {
   const label = providerLabel(input.provider);
+  const prefix = commandPrefix(input.provider);
 
   const subject = `Connect your ${label}`;
+
+  // IMPORTANT: I don't keep the request pending across the connect, so the user
+  // must SEND IT AGAIN once connected — a "done"/"I connected it" reply gets
+  // read as a new note, not a retry. Say that explicitly.
+  const resend =
+    `Once you're connected, send me the request again — reply to this email starting with ` +
+    `"${prefix} …" and I'll take care of it right away. (Just telling me you've connected won't ` +
+    `trigger it on its own — I need the request itself.)`;
 
   const textBody = [
     `You asked me to ${input.commandSummary}, but your ${label} isn't connected yet.`,
     "",
     `Connect ${label}: ${input.connectUrl}`,
     "",
-    "Once you're connected, email me again and I'll take care of it.",
+    resend,
   ].join("\n");
 
   const html = renderButtonEmailHtml({
     paragraphs: [
       `You asked me to ${input.commandSummary}, but your ${label} isn't connected yet.`,
-      "Once you're connected, email me again and I'll take care of it.",
+      resend,
     ],
     button: { label: `Connect ${label}`, url: input.connectUrl },
   });

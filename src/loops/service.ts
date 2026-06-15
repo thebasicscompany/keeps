@@ -722,10 +722,17 @@ export async function applyLoopReplyCommand(input: {
   const targets = selectCommandTargets(command, commandableLoops);
 
   if (targets.length === 0) {
+    // `confirm` only promotes *candidate* (low-confidence) loops. Most loops are
+    // already saved as `open`, so a bare "confirm" legitimately has nothing to act
+    // on — that's not a missing loop NUMBER, and saying so confuses people.
+    const reply =
+      command.type === "confirm"
+        ? "Nothing's waiting on a confirm — those loops are already saved and I'm tracking them."
+        : "I could not find that loop number.";
     return {
       command,
       updatedLoops: [],
-      reply: "I could not find that loop number.",
+      reply,
       events: [],
     };
   }
