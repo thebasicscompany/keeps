@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import type { Route } from "next";
 import type { ReactNode } from "react";
@@ -143,6 +144,7 @@ function Section({
 
 function Header() {
   const [open, setOpen] = useState(false);
+  const { isSignedIn } = useAuth();
 
   return (
     <>
@@ -173,9 +175,15 @@ function Header() {
             ))}
           </div>
           <div className="keeps-nav-actions">
-            <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/sign-in" as Route}>
-              Sign in
-            </Link>
+            {isSignedIn ? (
+              <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/settings" as Route}>
+                Settings
+              </Link>
+            ) : (
+              <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/sign-in" as Route}>
+                Sign in
+              </Link>
+            )}
             <button
               aria-expanded={open}
               aria-label={open ? "Close menu" : "Open menu"}

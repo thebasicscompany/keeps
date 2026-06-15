@@ -43,7 +43,13 @@ export function KeepsLogoLink() {
   );
 }
 
-export function SecondaryHeader({ active }: { active?: SecondaryPage }) {
+export function SecondaryHeader({
+  active,
+  signedIn = false,
+}: {
+  active?: SecondaryPage;
+  signedIn?: boolean;
+}) {
   return (
     <header className="keeps-header keeps-secondary-header">
       <div className="keeps-side" />
@@ -65,9 +71,15 @@ export function SecondaryHeader({ active }: { active?: SecondaryPage }) {
               {item.label}
             </Link>
           ))}
-          <Link className="is-muted" href={"/sign-in" as Route}>
-            Sign in
-          </Link>
+          {signedIn ? (
+            <Link className="is-muted" href={"/settings" as Route}>
+              Settings
+            </Link>
+          ) : (
+            <Link className="is-muted" href={"/sign-in" as Route}>
+              Sign in
+            </Link>
+          )}
         </div>
       </nav>
       <div className="keeps-side" />

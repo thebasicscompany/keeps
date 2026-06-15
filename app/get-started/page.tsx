@@ -29,7 +29,7 @@ export default async function GetStartedPage() {
 
   return (
     <div className="keeps-page keeps-auth-page">
-      <SecondaryHeader active="start" />
+      <SecondaryHeader active="start" signedIn={Boolean(sessionEmail)} />
       <div aria-hidden="true" className="keeps-auth-background" />
       <Suspense>
         <GetStartedStepper sessionEmail={sessionEmail} />
