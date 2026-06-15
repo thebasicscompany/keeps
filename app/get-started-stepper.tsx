@@ -20,11 +20,9 @@ type StepId = "email" | "code" | "capture" | "style" | "done";
 const steps: StepId[] = ["email", "capture", "style"];
 const RESEND_COOLDOWN_SECONDS = 30;
 
-const primaryButtonClass =
-  "h-16 rounded-none border border-[rgba(30,107,79,0.32)] bg-[#C1F5DF] px-6 text-base font-semibold text-[#14140F] shadow-[inset_0_1px_0_rgba(255,255,255,0.75),inset_0_-2px_0_rgba(30,107,79,0.28),0_12px_24px_rgba(30,107,79,0.16)] transition-colors hover:bg-[#AFF0D3] focus-visible:ring-2 focus-visible:ring-[rgba(30,107,79,0.32)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#C1F5DF]";
+const primaryButtonClass = "keeps-button keeps-button-primary keeps-onboarding-primary";
 
-const inputClass =
-  "h-[78px] w-full rounded-none border border-[#E2E2DD] bg-white px-7 text-[18px] font-medium text-[#14140F] outline-none transition-shadow placeholder:text-[#6F6F66] focus:border-[#14140F] focus:shadow-[0_0_0_1px_#14140F] focus:ring-0";
+const inputClass = "keeps-onboarding-input";
 
 // Maps a thrown Clerk error to a single inline message in the design language.
 // Never renders raw error objects. `existing` signals the caller to surface the
@@ -84,7 +82,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
   const codeInputRef = useRef<HTMLInputElement>(null);
 
-  // Synchronous in-flight guard — prevents parallel Clerk calls when the
+  // Synchronous in-flight guard prevents parallel Clerk calls when the
   // auto-submit (6th digit) and Verify button fire in the same event loop tick.
   // React state (`submitting`) is async and re-renders too late for this.
   const inFlightRef = useRef(false);
@@ -132,7 +130,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
   // recovery. Factored out so submitCode's catch can reuse it without
   // duplicating the setActive + refresh + setStep sequence. A missing session
   // id means the sign-up is NOT actually complete (e.g. the instance demands a
-  // field this flow never collects) — advancing would fake success with no
+  // field this flow never collects); advancing would fake success with no
   // Clerk user behind it, which is how the password-requirement outage hid.
   async function completeVerification(sessionId: string | null | undefined): Promise<boolean> {
     if (!clerk.isLoaded || !sessionId) {
@@ -183,7 +181,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
   }
 
   async function submitCode(rawCode: string) {
-    // Part 1: synchronous in-flight guard — blocks a second parallel call that
+    // Part 1: synchronous in-flight guard blocks a second parallel call that
     // races through before React re-renders the `submitting` state.
     if (!clerk.isLoaded || inFlightRef.current) {
       return;
@@ -218,8 +216,8 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
     } catch (caught) {
       // Part 2: recover from "already verified" race. If the first of two
       // parallel calls already succeeded server-side, Clerk returns
-      // "verification_already_verified". Treat that — or a signUp already
-      // showing complete — as success rather than an error.
+      // "verification_already_verified". Treat that, or a signUp already
+      // showing complete, as success rather than an error.
       if (
         isClerkAPIResponseError(caught) &&
         caught.errors.some((e) => e.code === "verification_already_verified")
@@ -251,7 +249,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
     if (error) {
       setError(null);
     }
-    // Part 3: only auto-submit if this is a new 6-digit value — prevents a
+    // Part 3: only auto-submit if this is a new 6-digit value; prevents a
     // second auto-submit for the same code on re-render after error clear.
     if (digits.length === 6 && digits !== lastAutoSubmitRef.current) {
       lastAutoSubmitRef.current = digits;
@@ -291,27 +289,26 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
   }
 
   return (
-    <main className="relative z-10 min-h-svh text-[#14140F]">
-      <section className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col justify-center px-5 py-9 sm:px-0">
-        <div className="rounded-none border border-[#E2E2DD] bg-white p-5 shadow-[0_24px_70px_rgba(20,20,15,0.07)] sm:p-6">
-          <div className="mb-9 flex items-start justify-between gap-6">
-            <div className="min-w-0">
+    <main className="keeps-auth-main">
+      <section className="keeps-onboarding-shell">
+        <div className="keeps-card keeps-onboarding-card">
+          <div className="keeps-onboarding-head">
+            <div className="keeps-onboarding-title-block">
               <div
-                className="mb-5 flex size-14 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]"
+                className="keeps-onboarding-icon"
                 aria-hidden="true"
               >
                 {step === "email" ? (
-                  <Archive className="size-7" strokeWidth={2.6} />
+                  <Archive className="keeps-onboarding-icon-svg" strokeWidth={2.6} />
                 ) : step === "code" ? (
-                  <ShieldCheck className="size-7" strokeWidth={2.4} />
+                  <ShieldCheck className="keeps-onboarding-icon-svg" strokeWidth={2.4} />
                 ) : (
-                  <Mail className="size-7" strokeWidth={2.4} />
+                  <Mail className="keeps-onboarding-icon-svg" strokeWidth={2.4} />
                 )}
               </div>
-              <h1 className="text-[28px] leading-tight font-bold tracking-normal text-[#14140F]">
-                Welcome to Keeps
-              </h1>
-              <p className="mt-1 text-[27px] leading-tight font-medium tracking-normal text-[#6F6F66]">
+              <p className="keeps-eyebrow">Get started</p>
+              <h1>Welcome to Keeps</h1>
+              <p className="keeps-onboarding-subtitle">
                 {step === "email" && "What's your work email?"}
                 {step === "code" && "Enter your code."}
                 {step === "capture" && "Save your capture address."}
@@ -322,7 +319,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
             {step !== "done" ? (
               <button
-                className="mt-5 shrink-0 text-sm font-medium text-[#6F6F66] transition-colors hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none"
+                className="keeps-onboarding-ghost"
                 onClick={() => setStep("done")}
                 type="button"
               >
@@ -331,9 +328,9 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             ) : null}
           </div>
 
-          <div className="min-h-[128px]">
+          <div className="keeps-onboarding-stage">
             {step === "email" ? (
-              <form className="space-y-5" id="keeps-email-form" onSubmit={startSignUp}>
+              <form className="keeps-onboarding-form" id="keeps-email-form" onSubmit={startSignUp}>
                 <label className="sr-only" htmlFor="email">
                   Work email
                 </label>
@@ -357,13 +354,13 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                     fails on instances with bot protection enabled. */}
                 <div id="clerk-captcha" />
                 {error ? (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#B42318]">
+                  <p className="keeps-onboarding-message is-error">
                     {error.message}
                     {error.existing ? (
                       <>
                         {" "}
                         <Link
-                          className="font-semibold underline underline-offset-2 hover:text-[#8f1c13]"
+                          className="keeps-document-link"
                           href={"/sign-in" as Route}
                         >
                           Sign in instead
@@ -373,7 +370,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                     ) : null}
                   </p>
                 ) : (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
+                  <p className="keeps-onboarding-message">
                     Keeps only accepts messages from an address you verify.
                   </p>
                 )}
@@ -381,7 +378,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             ) : null}
 
             {step === "code" ? (
-              <form className="space-y-5" id="keeps-code-form" onSubmit={onCodeFormSubmit}>
+              <form className="keeps-onboarding-form" id="keeps-code-form" onSubmit={onCodeFormSubmit}>
                 <label className="sr-only" htmlFor="code">
                   Verification code
                 </label>
@@ -395,24 +392,22 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                   type="text"
                   maxLength={6}
                   required
-                  className={cn(inputClass, "text-center text-[28px] tracking-[0.4em]")}
+                  className={cn(inputClass, "keeps-onboarding-code-input")}
                   value={code}
                   onChange={onCodeChange}
                 />
                 {error ? (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#B42318]">{error.message}</p>
+                  <p className="keeps-onboarding-message is-error">{error.message}</p>
                 ) : (
-                  <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
+                  <p className="keeps-onboarding-message">
                     We sent a 6-digit code to{" "}
-                    <span className="font-semibold text-[#14140F]">{email}</span>.
+                    <span>{email}</span>.
                   </p>
                 )}
                 <button
                   className={cn(
-                    "px-1 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none",
-                    cooldown > 0
-                      ? "cursor-not-allowed text-[#6F6F66]"
-                      : "text-[#1E6B4F] hover:text-[#14140F]"
+                    "keeps-onboarding-text-button",
+                    cooldown > 0 && "is-disabled"
                   )}
                   disabled={cooldown > 0 || submitting}
                   onClick={resendCode}
@@ -424,24 +419,28 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             ) : null}
 
             {step === "capture" ? (
-              <div className="space-y-5">
+              <div className="keeps-onboarding-form">
                 <button
-                  className="flex h-[78px] w-full items-center justify-between rounded-none border border-[rgba(30,107,79,0.28)] bg-[#E9FBF4] px-7 text-left text-[17px] font-medium text-[#14140F] transition-colors hover:bg-[#def7ec] focus-visible:ring-2 focus-visible:ring-[#14140F]/18 focus-visible:outline-none"
+                  className="keeps-capture-address-card"
                   onClick={copyAddress}
                   type="button"
                 >
                   <span>{CAPTURE_ADDRESS}</span>
                   <span
                     className={cn(
-                      "flex items-center gap-2 text-sm",
-                      copied ? "text-[#1E6B4F]" : "text-[#6F6F66]"
+                      "keeps-capture-address-action",
+                      copied && "is-copied"
                     )}
                   >
-                    {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                    {copied ? "Copied ✓" : "Copy"}
+                    {copied ? (
+                      <Check className="keeps-capture-icon" />
+                    ) : (
+                      <Copy className="keeps-capture-icon" />
+                    )}
+                    {copied ? "Copied" : "Copy"}
                   </span>
                 </button>
-                <p className="px-1 text-sm leading-6 font-medium text-[#6F6F66]">
+                <p className="keeps-onboarding-message">
                   BCC, forward, or email Keeps directly. Keeps stays invisible to everyone else.
                 </p>
               </div>
@@ -450,29 +449,29 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
             {step === "style" ? <WorkingStylePicker styles={workingStyles} /> : null}
 
             {step === "done" ? (
-              <div className="rounded-none border border-[#E2E2DD] bg-[#E9FBF4] px-7 py-6">
-                <div className="mb-4 flex size-10 items-center justify-center rounded-none bg-[#14140F] text-[#C1F5DF]">
-                  <Check className="size-5" strokeWidth={2.6} />
+              <div className="keeps-onboarding-done-card">
+                <div className="keeps-onboarding-done-icon">
+                  <Check className="keeps-onboarding-done-svg" strokeWidth={2.6} />
                 </div>
-                <p className="text-[17px] leading-7 font-medium text-[#14140F]">
-                  Send work to <span className="font-semibold">{CAPTURE_ADDRESS}</span>. Keeps will
+                <p>
+                  Send work to <span>{CAPTURE_ADDRESS}</span>. Keeps will
                   remember it privately.
                 </p>
               </div>
             ) : null}
           </div>
 
-          <div className="mt-5 space-y-4">
+          <div className="keeps-onboarding-footer-controls">
             {step === "email" ? (
-              <p className="max-w-[510px] text-[15px] leading-6 font-medium text-[#6F6F66]">
+              <p className="keeps-onboarding-note">
                 External actions always require approval.
               </p>
             ) : null}
 
-            <div className="flex items-center gap-3">
+            <div className="keeps-onboarding-actions">
               {step !== "email" && step !== "done" ? (
                 <button
-                  className="h-16 rounded-none px-5 text-sm font-semibold text-[#6F6F66] transition-colors hover:text-[#14140F] focus-visible:ring-2 focus-visible:ring-[#14140F]/20 focus-visible:outline-none"
+                  className="keeps-onboarding-back"
                   onClick={goBack}
                   type="button"
                 >
@@ -482,7 +481,7 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
               {step === "email" ? (
                 <button
-                  className={cn(primaryButtonClass, "w-full")}
+                  className={primaryButtonClass}
                   disabled={!isLoaded || submitting}
                   form="keeps-email-form"
                   type="submit"
@@ -493,41 +492,41 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
 
               {step === "code" ? (
                 <button
-                  className={cn(primaryButtonClass, "flex flex-1 items-center justify-center gap-2")}
+                  className={cn(primaryButtonClass, "keeps-onboarding-primary-with-icon")}
                   disabled={!isLoaded || submitting || code.length !== 6}
                   form="keeps-code-form"
                   type="submit"
                 >
                   {submitting ? "Verifying…" : "Verify"}
-                  {!submitting ? <ArrowRight className="size-4" strokeWidth={2.6} /> : null}
+                  {!submitting ? <ArrowRight className="keeps-onboarding-arrow" strokeWidth={2.6} /> : null}
                 </button>
               ) : null}
 
               {step === "capture" ? (
                 <button
-                  className={cn(primaryButtonClass, "flex flex-1 items-center justify-center gap-2")}
+                  className={cn(primaryButtonClass, "keeps-onboarding-primary-with-icon")}
                   onClick={() => setStep("style")}
                   type="button"
                 >
                   Continue
-                  <ArrowRight className="size-4" strokeWidth={2.6} />
+                  <ArrowRight className="keeps-onboarding-arrow" strokeWidth={2.6} />
                 </button>
               ) : null}
 
               {step === "style" ? (
                 <button
-                  className={cn(primaryButtonClass, "flex flex-1 items-center justify-center gap-2")}
+                  className={cn(primaryButtonClass, "keeps-onboarding-primary-with-icon")}
                   onClick={() => setStep("done")}
                   type="button"
                 >
                   Finish
-                  <ArrowRight className="size-4" strokeWidth={2.6} />
+                  <ArrowRight className="keeps-onboarding-arrow" strokeWidth={2.6} />
                 </button>
               ) : null}
 
               {step === "done" ? (
                 <button
-                  className={cn(primaryButtonClass, "w-full")}
+                  className={primaryButtonClass}
                   onClick={() => setStep(sessionEmail || email ? "capture" : "email")}
                   type="button"
                 >
@@ -538,28 +537,27 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
           </div>
 
           <div
-            className="mt-7 flex gap-1.5"
+            className="keeps-onboarding-progress"
             aria-label={`Step ${Math.min(stepIndex + 1, steps.length)} of ${steps.length}`}
           >
             {steps.map((item, index) => (
               <span
                 className={cn(
-                  "h-1.5 flex-1 rounded-none bg-[#E3E3DE] transition-colors",
-                  index <= Math.min(stepIndex, steps.length - 1) && "bg-[#14140F]"
+                  index <= Math.min(stepIndex, steps.length - 1) && "is-active"
                 )}
                 key={item}
               />
             ))}
           </div>
 
-          {/* Privacy promise — visible on all steps */}
-          <p className="mt-5 text-[13px] leading-[1.6] font-medium text-[#6F6F66]">
+          {/* Privacy promise: visible on all steps */}
+          <p className="keeps-onboarding-privacy">
             Raw email bodies are deleted after 30 days by default. Your extracted
             loops stay until you remove them. You can view, export, or delete all
-            your data — including your full account — any time from Settings.{" "}
+            your data, including your full account, any time from Settings.{" "}
             <Link
               href={"/privacy" as Route}
-              className="font-semibold text-[#14140F] underline underline-offset-2 hover:text-[#1E6B4F]"
+              className="keeps-document-link"
             >
               Privacy policy
             </Link>
