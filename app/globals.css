@@ -937,6 +937,7 @@
 .keeps-control-copy {
   min-height: 300px;
   padding: 44px 28px;
+  overflow: hidden;
 }
 
 .keeps-control-copy h2 {
@@ -949,13 +950,107 @@
   line-height: 0.98;
 }
 
-.keeps-control-copy > p:last-child {
+.keeps-control-body {
   max-width: 640px;
   margin: 26px 0 0;
   color: var(--keeps-muted);
   font-size: 19px;
   font-weight: 300;
   line-height: 1.42;
+}
+
+.keeps-control-visual {
+  --keeps-control-sequence-duration: 5.8s;
+  position: relative;
+  width: 100%;
+  height: clamp(168px, 26vw, 220px);
+  margin-top: 34px;
+  overflow: hidden;
+  border: 1px dashed rgba(30, 107, 79, 0.3);
+  border-radius: 4px;
+  background: var(--keeps-green-3);
+}
+
+.keeps-control-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.keeps-control-faint {
+  opacity: 0.42;
+  animation: keeps-faint-shift 7.2s ease-in-out infinite;
+}
+
+.keeps-control-faint-two {
+  opacity: 0.32;
+  animation-delay: 1s;
+}
+
+.keeps-control-source,
+.keeps-control-gate,
+.keeps-control-memory,
+.keeps-control-agent {
+  opacity: 0;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+.keeps-control-source {
+  animation: keeps-control-source-reveal var(--keeps-control-sequence-duration) cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+}
+
+.keeps-control-gate {
+  animation: keeps-control-gate-reveal var(--keeps-control-sequence-duration) cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+}
+
+.keeps-control-memory {
+  animation: keeps-control-memory-reveal var(--keeps-control-sequence-duration) cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+}
+
+.keeps-control-agent {
+  animation: keeps-control-agent-reveal var(--keeps-control-sequence-duration) cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+}
+
+.keeps-control-flow {
+  stroke: var(--keeps-green-dark);
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-dasharray: 6 8;
+  opacity: 0;
+  animation-duration: 2.2s, var(--keeps-control-sequence-duration);
+  animation-fill-mode: none, both;
+  animation-iteration-count: infinite, infinite;
+  animation-name: keeps-flow, keeps-control-flow-one-reveal;
+  animation-timing-function: linear, ease-in-out;
+}
+
+.keeps-control-flow-two {
+  animation-name: keeps-flow, keeps-control-flow-two-reveal;
+}
+
+.keeps-control-flow-three {
+  animation-name: keeps-flow, keeps-control-flow-three-reveal;
+}
+
+.keeps-control-packet {
+  fill: var(--keeps-green-dark);
+  filter: drop-shadow(0 0 7px rgba(30, 107, 79, 0.38));
+}
+
+.keeps-control-packet-one {
+  offset-path: path("M232 104C258 95 278 92 300 96");
+  animation: keeps-control-packet-one var(--keeps-control-sequence-duration) cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.keeps-control-packet-two {
+  offset-path: path("M380 128C382 142 386 150 398 158");
+  animation: keeps-control-packet-two var(--keeps-control-sequence-duration) cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.keeps-control-packet-three {
+  offset-path: path("M510 190C536 180 550 154 532 132");
+  animation: keeps-control-packet-three var(--keeps-control-sequence-duration) cubic-bezier(0.4, 0, 0.2, 1) infinite both;
 }
 
 .keeps-control-panel {
@@ -1375,6 +1470,183 @@
   }
 }
 
+@keyframes keeps-control-source-reveal {
+  0%,
+  2% {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  9%,
+  92% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  97%,
+  100% {
+    transform: translateY(-4px) scale(0.996);
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-gate-reveal {
+  0%,
+  18% {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  25%,
+  92% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  97%,
+  100% {
+    transform: translateY(-4px) scale(0.996);
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-memory-reveal {
+  0%,
+  39% {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  47%,
+  92% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  97%,
+  100% {
+    transform: translateY(-4px) scale(0.996);
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-agent-reveal {
+  0%,
+  62% {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+  70%,
+  92% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  97%,
+  100% {
+    transform: translateY(-4px) scale(0.996);
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-flow-one-reveal {
+  0%,
+  18% {
+    opacity: 0;
+  }
+  24%,
+  92% {
+    opacity: 0.52;
+  }
+  97%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-flow-two-reveal {
+  0%,
+  39% {
+    opacity: 0;
+  }
+  46%,
+  92% {
+    opacity: 0.52;
+  }
+  97%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-flow-three-reveal {
+  0%,
+  62% {
+    opacity: 0;
+  }
+  69%,
+  92% {
+    opacity: 0.52;
+  }
+  97%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-packet-one {
+  0%,
+  17% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  30% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  34%,
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-packet-two {
+  0%,
+  38% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  43% {
+    opacity: 1;
+  }
+  51% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  55%,
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes keeps-control-packet-three {
+  0%,
+  61% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  66% {
+    opacity: 1;
+  }
+  76% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  80%,
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
 @media (min-width: 48rem) {
   .keeps-page main {
     padding-top: 64px;
@@ -1460,6 +1732,10 @@
     padding-inline: 34px;
   }
 
+  .keeps-control-visual {
+    margin-top: 40px;
+  }
+
   .keeps-footer-inner {
     flex-direction: row;
     align-items: center;
@@ -1536,6 +1812,11 @@
     min-height: 450px;
   }
 
+  .keeps-control-visual {
+    height: 178px;
+    margin-top: 32px;
+  }
+
   .keeps-control-panel {
     align-content: start;
   }
@@ -1562,16 +1843,22 @@
   .keeps-trace-step,
   .keeps-status-row,
   .keeps-output-card,
-  .keeps-visual-caption {
+  .keeps-visual-caption,
+  .keeps-control-source,
+  .keeps-control-gate,
+  .keeps-control-memory,
+  .keeps-control-agent {
     transform: none !important;
     opacity: 1 !important;
   }
 
-  .keeps-flow-line {
+  .keeps-flow-line,
+  .keeps-control-flow {
     opacity: 0.52 !important;
   }
 
-  .keeps-packet {
+  .keeps-packet,
+  .keeps-control-packet {
     opacity: 0 !important;
   }
 }

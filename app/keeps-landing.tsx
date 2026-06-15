@@ -424,6 +424,111 @@ function Workflow() {
   );
 }
 
+function ControlIntelligenceVisual() {
+  return (
+    <div
+      className="keeps-control-visual"
+      aria-label="Permissioned company intelligence becomes approved agent actions"
+    >
+      <svg
+        className="keeps-control-svg"
+        fill="none"
+        role="img"
+        viewBox="0 0 720 250"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <title>Permissioned company intelligence flow</title>
+        <desc>A selected email becomes private memory, then approved reminders, drafts, and automations for agents.</desc>
+        <defs>
+          <pattern id="keeps-control-grid-pattern" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M32 0H0V32" stroke="rgba(30,107,79,.1)" strokeWidth="1" />
+          </pattern>
+          <marker id="keeps-control-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="6.5" refY="3.5">
+            <path d="M0 0L7 3.5L0 7Z" fill="#1E6B4F" />
+          </marker>
+          <filter id="control-soft-shadow" x="-18%" y="-18%" width="136%" height="136%">
+            <feDropShadow dx="0" dy="12" stdDeviation="16" floodColor="#1E6B4F" floodOpacity=".14" />
+          </filter>
+        </defs>
+
+        <rect x="1" y="1" width="718" height="248" rx="4" fill="#FBFFFC" stroke="rgba(30,107,79,.24)" />
+        <rect x="1" y="1" width="718" height="248" rx="4" fill="url(#keeps-control-grid-pattern)" />
+        <rect x="34" y="24" width="652" height="202" rx="4" fill="#E9FBF4" opacity=".62" />
+
+        <g className="keeps-control-faint keeps-control-faint-one">
+          <rect x="488" y="36" width="164" height="48" rx="4" fill="#FAFAF8" stroke="#DDE4DF" />
+          <text className="keeps-svg-label" x="508" y="65">source quote</text>
+          <path d="M604 61H632" stroke="#C8D8D0" strokeWidth="4" />
+        </g>
+        <g className="keeps-control-faint keeps-control-faint-two">
+          <rect x="82" y="174" width="218" height="38" rx="4" fill="#FAFAF8" stroke="#DDE4DF" />
+          <text className="keeps-svg-label" x="108" y="199">not watching everything</text>
+        </g>
+
+        <g className="keeps-control-source" filter="url(#control-soft-shadow)">
+          <rect x="52" y="58" width="180" height="94" rx="4" fill="#FAFAF8" stroke="#14140F" strokeOpacity=".22" />
+          <rect x="52" y="58" width="180" height="25" rx="4" fill="#14140F" />
+          <rect x="52" y="78" width="180" height="5" fill="#14140F" />
+          <text className="keeps-svg-label keeps-svg-label-light" x="68" y="75">chosen thread</text>
+          <text className="keeps-svg-small keeps-svg-dark" x="68" y="107">Priya security review</text>
+          <rect x="68" y="124" width="74" height="18" rx="3" fill="#C1F5DF" />
+          <text className="keeps-svg-chip-text" x="80" y="137">selected</text>
+          <path d="M158 133H208" stroke="#D9E7DF" strokeWidth="4" />
+        </g>
+
+        <path
+          className="keeps-control-flow keeps-control-flow-one"
+          d="M232 104C258 95 278 92 300 96"
+          markerEnd="url(#keeps-control-arrow)"
+        />
+
+        <g className="keeps-control-gate" filter="url(#control-soft-shadow)">
+          <rect x="300" y="46" width="160" height="82" rx="4" fill="#14140F" />
+          <text className="keeps-svg-label keeps-svg-label-light" x="320" y="75">permission gate</text>
+          <rect x="320" y="92" width="58" height="20" rx="3" fill="#C1F5DF" />
+          <text className="keeps-svg-chip-text" x="334" y="106">allow</text>
+          <path d="M396 102H434" stroke="#F5F5F4" strokeOpacity=".42" strokeWidth="4" />
+        </g>
+
+        <path
+          className="keeps-control-flow keeps-control-flow-two"
+          d="M380 128C382 142 386 150 398 158"
+          markerEnd="url(#keeps-control-arrow)"
+        />
+
+        <g className="keeps-control-memory" filter="url(#control-soft-shadow)">
+          <rect x="278" y="158" width="232" height="64" rx="4" fill="#FAFAF8" stroke="#1E6B4F" strokeWidth="1.4" />
+          <text className="keeps-svg-label" x="298" y="184">private memory</text>
+          <path d="M298 201H376" stroke="#C8D8D0" strokeWidth="4" />
+          <path d="M394 201H490" stroke="#D9E7DF" strokeWidth="4" />
+          <rect x="298" y="211" width="66" height="10" rx="2" fill="#C1F5DF" />
+        </g>
+
+        <path
+          className="keeps-control-flow keeps-control-flow-three"
+          d="M510 190C536 180 550 154 532 132"
+          markerEnd="url(#keeps-control-arrow)"
+        />
+
+        <g className="keeps-control-agent" filter="url(#control-soft-shadow)">
+          <rect x="532" y="88" width="144" height="112" rx="4" fill="#FAFAF8" stroke="#14140F" strokeOpacity=".24" />
+          <text className="keeps-svg-label" x="552" y="120">agent ready</text>
+          <rect x="552" y="138" width="54" height="20" rx="3" fill="#C1F5DF" />
+          <text className="keeps-svg-chip-text" x="565" y="152">nudge</text>
+          <rect x="616" y="138" width="46" height="20" rx="3" fill="#F6F8F5" stroke="#DDE4DF" />
+          <text className="keeps-svg-chip-text" x="628" y="152">draft</text>
+          <rect x="552" y="166" width="82" height="21" rx="3" fill="#14140F" />
+          <text className="keeps-svg-label keeps-svg-label-light" x="565" y="181">approved</text>
+        </g>
+
+        <circle className="keeps-control-packet keeps-control-packet-one" r="4" />
+        <circle className="keeps-control-packet keeps-control-packet-two" r="4" />
+        <circle className="keeps-control-packet keeps-control-packet-three" r="4" />
+      </svg>
+    </div>
+  );
+}
+
 function ControlSection() {
   return (
     <Section className="keeps-control-section">
@@ -431,10 +536,11 @@ function ControlSection() {
         <Card className="keeps-control-copy" dots={false}>
           <p className="keeps-eyebrow">03 / Control</p>
           <h2>Private intelligence. Explicit action.</h2>
-          <p>
+          <p className="keeps-control-body">
             Keeps helps your company compound what people already know while keeping
             capture permissioned and actions approval-gated.
           </p>
+          <ControlIntelligenceVisual />
         </Card>
         <Card className="keeps-control-panel">
           <div className="keeps-control-panel-head">
