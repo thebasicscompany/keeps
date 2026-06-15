@@ -63,10 +63,10 @@ const controlItems = [
   },
 ];
 
-const CONTACT_URL = "https://cal.com/shreshth-saride-e450ux/30min";
+export const CONTACT_URL = "https://cal.com/shreshth-saride-e450ux/30min";
 
 const navItems = [
-  { label: "How it works", href: "#how" },
+  { label: "How it works", href: "/#how" },
   { label: "Pricing", href: "/pricing" },
   { label: "Privacy", href: "/privacy" },
   { label: "Start", href: "/get-started" },
@@ -145,7 +145,7 @@ function Section({
   );
 }
 
-function Header() {
+export function Header() {
   const [open, setOpen] = useState(false);
   const { isSignedIn } = useAuth();
 
@@ -593,7 +593,7 @@ function ControlSection() {
   );
 }
 
-function Footer() {
+export function Footer() {
   return (
     <footer className="keeps-footer">
       <div className="keeps-side" />

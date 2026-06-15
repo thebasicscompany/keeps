@@ -23,9 +23,11 @@ export default async function BillingPage() {
   }
 
   // `has({ plan })` checks the ACTIVE organization's Clerk Billing plan.
-  // The slug must match the plan created in the Clerk dashboard
-  // (Subscription plans -> Plans for Organizations). Update if you rename it.
-  const hasTeamPlan = has({ plan: "team" });
+  // Slugs must match the plans created in the Clerk dashboard
+  // (Subscription plans -> Plans for Organizations).
+  const onBusiness = has({ plan: "business" });
+  const onTeams = has({ plan: "teams" }) || has({ plan: "team" });
+  const activePlan = onBusiness ? "Business" : onTeams ? "Teams" : null;
 
   return (
     <div className={cardClass}>
@@ -61,10 +63,10 @@ export default async function BillingPage() {
       <div className="mb-6">
         <span
           className={`keeps-mono inline-flex h-7 items-center rounded-[4px] px-2.5 text-[11px] uppercase ${
-            hasTeamPlan ? statusBadgeVariants.active : statusBadgeVariants.none
+            activePlan ? statusBadgeVariants.active : statusBadgeVariants.none
           }`}
         >
-          {hasTeamPlan ? "Team plan active" : "No active plan"}
+          {activePlan ? `${activePlan} plan active` : "No active plan"}
         </span>
       </div>
 
