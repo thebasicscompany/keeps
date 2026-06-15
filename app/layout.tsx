@@ -19,6 +19,28 @@ const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
 });
 
+// Theme all Clerk widgets (SignIn/SignUp, the org-creation task,
+// OrganizationSwitcher, PricingTable) to the keeps design system.
+const clerkAppearance = {
+  variables: {
+    colorPrimary: "#14140F",
+    colorText: "#14140F",
+    colorTextSecondary: "#6F6F66",
+    colorBackground: "#FAFAF8",
+    colorInputBackground: "#FAFAF8",
+    colorInputText: "#14140F",
+    colorDanger: "#B42318",
+    borderRadius: "4px",
+    fontFamily: "var(--font-bricolage), ui-sans-serif, system-ui, sans-serif",
+  },
+  elements: {
+    card: "border border-[#DEDED8] shadow-[0_24px_70px_rgba(20,20,15,0.07)]",
+    formButtonPrimary:
+      "bg-[#14140F] text-[#FAFAF8] hover:bg-[#26261f] normal-case font-semibold",
+    footerActionLink: "text-[#1E6B4F] hover:text-[#14140F]",
+  },
+};
+
 export const metadata: Metadata = {
   title: "Keeps",
   description: "Frictionless company intelligence for agentic teams.",
@@ -29,7 +51,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider appearance={clerkAppearance}>
       <html
         lang="en"
         className={cn(geistSans.variable, geistMono.variable, bricolage.variable)}
