@@ -13,6 +13,8 @@
  */
 
 import type { ReactNode } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { UserButton } from "@clerk/nextjs";
 import { SettingsNav } from "./components/settings-nav";
 
@@ -26,7 +28,15 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
             <h1 className="text-[26px] font-light leading-tight tracking-[-0.01em] text-[#14140F]">
               Home
             </h1>
-            <UserButton />
+            <div className="flex items-center gap-3">
+              <Link
+                href={"/get-started" as Route}
+                className="keeps-mono inline-flex h-9 items-center rounded-[4px] border border-[#DEDED8] px-3 text-[12px] uppercase text-[#6F6F66] transition-colors hover:border-[#14140F] hover:text-[#14140F]"
+              >
+                Get started
+              </Link>
+              <UserButton />
+            </div>
           </div>
           <SettingsNav />
         </header>

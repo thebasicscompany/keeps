@@ -457,6 +457,13 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
                   Send work to <span>{CAPTURE_ADDRESS}</span>. Keeps will
                   remember it privately.
                 </p>
+                <p className="keeps-onboarding-message">
+                  Ready to invite your team?{" "}
+                  <Link className="keeps-document-link" href={"/settings/billing" as Route}>
+                    Choose a plan
+                  </Link>
+                  .
+                </p>
               </div>
             ) : null}
           </div>
@@ -525,13 +532,22 @@ export function GetStartedStepper({ sessionEmail }: { sessionEmail: string | nul
               ) : null}
 
               {step === "done" ? (
-                <button
-                  className={primaryButtonClass}
-                  onClick={() => setStep(sessionEmail || email ? "capture" : "email")}
-                  type="button"
-                >
-                  Review setup
-                </button>
+                <>
+                  <button
+                    className="keeps-onboarding-back"
+                    onClick={() => setStep(sessionEmail || email ? "capture" : "email")}
+                    type="button"
+                  >
+                    Review setup
+                  </button>
+                  <Link
+                    className={cn(primaryButtonClass, "keeps-onboarding-primary-with-icon")}
+                    href={"/settings/graph" as Route}
+                  >
+                    Go to Keeps
+                    <ArrowRight className="keeps-onboarding-arrow" strokeWidth={2.6} />
+                  </Link>
+                </>
               ) : null}
             </div>
           </div>
