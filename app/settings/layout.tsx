@@ -13,6 +13,7 @@
  */
 
 import type { ReactNode } from "react";
+import { UserButton } from "@clerk/nextjs";
 import { SettingsNav } from "./components/settings-nav";
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
@@ -21,9 +22,12 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-svh w-full max-w-[546px] flex-col px-5 py-9 sm:px-0">
         {/* Top header -------------------------------------------------------- */}
         <header className="mb-6">
-          <h1 className="mb-3 text-[26px] font-light leading-tight tracking-[-0.01em] text-[#14140F]">
-            Home
-          </h1>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h1 className="text-[26px] font-light leading-tight tracking-[-0.01em] text-[#14140F]">
+              Home
+            </h1>
+            <UserButton />
+          </div>
           <SettingsNav />
         </header>
 

@@ -51,7 +51,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <ClerkProvider appearance={clerkAppearance}>
+    <ClerkProvider appearance={clerkAppearance} afterSignOutUrl="/">
       <html
         lang="en"
         className={cn(geistSans.variable, geistMono.variable, bricolage.variable)}
