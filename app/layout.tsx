@@ -22,6 +22,9 @@ const bricolage = Bricolage_Grotesque({
 export const metadata: Metadata = {
   title: "Keeps",
   description: "Private loop memory for work email.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
