@@ -22,7 +22,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
         {/* Top header -------------------------------------------------------- */}
         <header className="mb-6">
           <h1 className="mb-3 text-[22px] font-bold leading-tight tracking-normal text-[#14140F]">
-            Settings
+            Home
           </h1>
           <SettingsNav />
         </header>

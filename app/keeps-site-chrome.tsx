@@ -72,8 +72,8 @@ export function SecondaryHeader({
             </Link>
           ))}
           {signedIn ? (
-            <Link className="is-muted" href={"/settings" as Route}>
-              Settings
+            <Link className="is-muted" href={"/settings/graph" as Route}>
+              Home
             </Link>
           ) : (
             <Link className="is-muted" href={"/sign-in" as Route}>

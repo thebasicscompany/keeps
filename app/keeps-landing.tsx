@@ -176,8 +176,8 @@ function Header() {
           </div>
           <div className="keeps-nav-actions">
             {isSignedIn ? (
-              <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/settings" as Route}>
-                Settings
+              <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/settings/graph" as Route}>
+                Home
               </Link>
             ) : (
               <Link className="keeps-button keeps-button-secondary keeps-signin" href={"/sign-in" as Route}>
