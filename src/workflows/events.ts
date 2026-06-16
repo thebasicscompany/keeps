@@ -290,6 +290,64 @@ export type EventMap = {
     /** ISO timestamp when the run was dead-lettered. */
     failedAt: string;
   };
+
+  // -------------------------------------------------------------------------
+  // Phase V2: standing grants + automation runs.
+  // Rule: ids + summaries only — never raw approval tokens, connector secrets,
+  // or hidden source-evidence bodies.
+  // -------------------------------------------------------------------------
+  "standing_grant.requested": { userId: string; recipeKey: string; standingGrantId?: string };
+  "standing_grant.created": { userId: string; standingGrantId: string; recipeKey: string };
+  "standing_grant.paused": { userId: string; standingGrantId: string; recipeKey: string };
+  "standing_grant.revoked": {
+    userId: string;
+    standingGrantId: string;
+    recipeKey: string;
+    reason?: string;
+  };
+  "standing_grant.expired": { userId: string; standingGrantId: string; recipeKey: string };
+  "automation.triggered": {
+    userId: string;
+    recipeKey: string;
+    triggerKind: string;
+    triggerRef?: string;
+    idempotencyKey: string;
+    standingGrantId?: string;
+  };
+  "automation.planned": {
+    userId: string;
+    automationRunId: string;
+    recipeKey: string;
+    requiresApproval: boolean;
+    provenance: string;
+  };
+  "automation.skipped": {
+    userId: string;
+    automationRunId: string;
+    recipeKey: string;
+    reason: string;
+  };
+  "automation.needs_approval": {
+    userId: string;
+    automationRunId: string;
+    recipeKey: string;
+    approvalRequestId: string;
+    actionKind: string;
+  };
+  "automation.executing": { userId: string; automationRunId: string; recipeKey: string };
+  "automation.completed": { userId: string; automationRunId: string; recipeKey: string };
+  "automation.failed": {
+    userId: string;
+    automationRunId: string;
+    recipeKey: string;
+    error: { code: string; message: string; retryable: boolean };
+  };
+  "automation.cancelled": {
+    userId: string;
+    automationRunId: string;
+    recipeKey: string;
+    reason: string;
+  };
 };
 
 // ---------------------------------------------------------------------------

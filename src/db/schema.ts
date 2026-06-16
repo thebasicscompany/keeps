@@ -77,6 +77,24 @@ export const auditActionEnum = pgEnum("audit_action", [
   "data.delete_completed",
   "user.deleted",
   "failed_processing.replayed",
+  // Phase V2 (Wave B) — standing grants + automation runs (append-only; same order as migration 0020)
+  "standing_grant.requested",
+  "standing_grant.created",
+  "standing_grant.activated",
+  "standing_grant.paused",
+  "standing_grant.revoked",
+  "standing_grant.expired",
+  "automation.triggered",
+  "automation.planned",
+  "automation.skipped",
+  "automation.needs_approval",
+  "automation.executing",
+  "automation.completed",
+  "automation.failed",
+  "automation.cancelled",
+  "automation.action_executed",
+  "automation.action_denied",
+  "policy.standing_grant_denied",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -886,6 +904,148 @@ export const loopEntities = pgTable(
   }),
 );
 
+// ── Phase V2 (Wave B): standing grants + automation run ledger ────────────────
+export const standingGrantStatusEnum = pgEnum("standing_grant_status", [
+  "pending",
+  "active",
+  "paused",
+  "revoked",
+  "expired",
+]);
+export const automationRunStatusEnum = pgEnum("automation_run_status", [
+  "planned",
+  "skipped",
+  "needs_approval",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export const automationRunActionStatusEnum = pgEnum("automation_run_action_status", [
+  "planned",
+  "needs_approval",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+  "skipped",
+]);
+export const automationTriggerKindEnum = pgEnum("automation_trigger_kind", [
+  "calendar_event",
+  "loop_stale",
+  "explicit_command",
+  "cron",
+]);
+
+export const standingGrants = pgTable(
+  "standing_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    recipeKey: text("recipe_key").notNull(),
+    status: standingGrantStatusEnum("status").notNull().default("pending"),
+    scope: jsonb("scope").notNull().default({}),
+    allowedActionKinds: jsonb("allowed_action_kinds").notNull().default([]),
+    blockedActionKinds: jsonb("blocked_action_kinds").notNull().default([]),
+    constraints: jsonb("constraints").notNull().default({}),
+    caps: jsonb("caps").notNull().default({}),
+    quietHours: jsonb("quiet_hours").notNull().default({}),
+    createdFromApprovalRequestId: uuid("created_from_approval_request_id").references(
+      () => approvalRequests.id,
+      { onDelete: "set null" },
+    ),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("standing_grants_user_status_idx").on(table.userId, table.status),
+    userRecipeStatusIdx: index("standing_grants_user_recipe_status_idx").on(
+      table.userId,
+      table.recipeKey,
+      table.status,
+    ),
+    activeExpiryIdx: index("standing_grants_active_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`status = 'active'`),
+  }),
+);
+
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    standingGrantId: uuid("standing_grant_id").references(() => standingGrants.id, {
+      onDelete: "set null",
+    }),
+    recipeKey: text("recipe_key").notNull(),
+    triggerKind: automationTriggerKindEnum("trigger_kind").notNull(),
+    triggerRef: text("trigger_ref"),
+    status: automationRunStatusEnum("status").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    inputSnapshot: jsonb("input_snapshot").notNull().default({}),
+    sandboxPlan: jsonb("sandbox_plan").notNull().default({}),
+    policyDecision: jsonb("policy_decision").notNull().default({}),
+    provenance: jsonb("provenance").notNull().default({}),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    executedAt: timestamp("executed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    idempotencyKeyUnique: uniqueIndex("automation_runs_idempotency_key_unique").on(
+      table.idempotencyKey,
+    ),
+    userCreatedIdx: index("automation_runs_user_created_idx").on(table.userId, table.createdAt),
+    userStatusIdx: index("automation_runs_user_status_idx").on(table.userId, table.status),
+    recipeStatusIdx: index("automation_runs_recipe_status_idx").on(table.recipeKey, table.status),
+    grantCreatedIdx: index("automation_runs_grant_created_idx").on(
+      table.standingGrantId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const automationRunActions = pgTable(
+  "automation_run_actions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    automationRunId: uuid("automation_run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    actionKind: text("action_kind").notNull(),
+    status: automationRunActionStatusEnum("status").notNull(),
+    target: jsonb("target").notNull().default({}),
+    payload: jsonb("payload").notNull().default({}),
+    policyDecision: jsonb("policy_decision").notNull().default({}),
+    connectorActionId: uuid("connector_action_id").references(() => connectorActions.id, {
+      onDelete: "set null",
+    }),
+    approvalRequestId: uuid("approval_request_id").references(() => approvalRequests.id, {
+      onDelete: "set null",
+    }),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runIdx: index("automation_run_actions_run_idx").on(table.automationRunId),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserIdentity = typeof userIdentities.$inferSelect;
@@ -937,3 +1097,15 @@ export type EntityKind = typeof entityKindEnum.enumValues[number];
 export type LoopEntity = typeof loopEntities.$inferSelect;
 export type NewLoopEntity = typeof loopEntities.$inferInsert;
 export type LoopEntityRole = typeof loopEntityRoleEnum.enumValues[number];
+
+// Phase V2 (Wave B) additions
+export type StandingGrant = typeof standingGrants.$inferSelect;
+export type NewStandingGrant = typeof standingGrants.$inferInsert;
+export type AutomationRun = typeof automationRuns.$inferSelect;
+export type NewAutomationRun = typeof automationRuns.$inferInsert;
+export type AutomationRunAction = typeof automationRunActions.$inferSelect;
+export type NewAutomationRunAction = typeof automationRunActions.$inferInsert;
+export type StandingGrantStatus = typeof standingGrantStatusEnum.enumValues[number];
+export type AutomationRunStatus = typeof automationRunStatusEnum.enumValues[number];
+export type AutomationRunActionStatus = typeof automationRunActionStatusEnum.enumValues[number];
+export type AutomationTriggerKind = typeof automationTriggerKindEnum.enumValues[number];

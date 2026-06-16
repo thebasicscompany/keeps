@@ -1,3 +1,6 @@
+import type { StandingGrantContext } from "@/automation/types";
+import { isKnownRecipe } from "@/automation/recipe-registry";
+
 export type ExternalActionKind =
   | "send_email"
   | "send_slack_message"
@@ -52,9 +55,10 @@ export type AuthorizationResult = {
 };
 
 /**
- * AR-7 authorization context. Carries an approval grant today; `standingGrant` is reserved
- * for Phase 4+ standing-grant authorization and is intentionally `never` so connector code
- * cannot hard-code "approval id string exists" as the only authorization shape.
+ * AR-7 authorization context. Carries the AR-7 approval grant and (Phase V2) an OPTIONAL
+ * standing grant. When `standingGrant` is present the standing-grant branch decides;
+ * otherwise the legacy approval path runs unchanged, so every pre-V2 caller behaves
+ * identically (no caller ever sets `standingGrant` unless it is an automation run).
  */
 export type AuthorizationContext = {
   userId: string;
@@ -63,7 +67,8 @@ export type AuthorizationContext = {
     status: "pending" | "approved" | "rejected" | "expired" | "cancelled";
     expiresAt: Date;
   };
-  standingGrant?: never /* reserved for Phase 4+ */;
+  /** Phase V2 standing grant; assembled by the automation executor (see @/automation/types). */
+  standingGrant?: StandingGrantContext;
 };
 
 /**
@@ -86,10 +91,22 @@ export function authorize(
   context: AuthorizationContext,
   options?: { now?: Date },
 ): AuthorizationResult {
+  // Connector action kinds (slack_dm, calendar_event) are aliases of policy kinds — map
+  // first so authorize() is invariant to which name a caller uses.
+  const mapped = toPolicyActionKind(action);
+
+  // ── Phase V2 standing-grant branch ──────────────────────────────────────────
+  // Taken ONLY when a grant is supplied. requiresApproval / assertApprovalAllowed / every
+  // connector path that passes only an approval never supply one, so the AR-7 path below is
+  // byte-for-byte unchanged for them.
+  if (context.standingGrant) {
+    return authorizeWithStandingGrant(mapped, context.standingGrant, options);
+  }
+
   // Fail closed: only an explicitly-known private action is treated as private. Everything
   // else (known external kinds AND arbitrary unrecognized strings like `test_action`) takes
   // the external path and must present a valid approved approval.
-  if (privateActions.has(action as KeepsActionKind)) {
+  if (privateActions.has(mapped as KeepsActionKind)) {
     return { result: "allowed" };
   }
 
@@ -141,4 +158,79 @@ export function assertApprovalAllowed(action: KeepsActionKind, approvalId?: stri
   if (decision.result === "needs_approval" && !approvalId) {
     throw new Error(`Action "${action}" requires an approval_request before execution.`);
   }
+}
+
+// ── Phase V2 standing-grant authorization ─────────────────────────────────────
+
+const CONNECTOR_KIND_ALIASES: Record<string, KeepsActionKind> = {
+  slack_dm: "send_slack_message",
+  calendar_event: "create_calendar_event",
+};
+
+/**
+ * Map a connector action kind (ACTION_REGISTRY: slack_dm, calendar_event) to its policy
+ * action kind, so `authorize('slack_dm', g)` deep-equals `authorize('send_slack_message', g)`.
+ * Unknown strings pass through unchanged (they fail closed downstream).
+ */
+export function toPolicyActionKind(action: string): KeepsActionKind | (string & {}) {
+  return CONNECTOR_KIND_ALIASES[action] ?? action;
+}
+
+/**
+ * Evaluate a standing grant for one action. PURE: cap usage + attendee presence are
+ * supplied on the context by the executor (computed inside its FOR UPDATE txn, SR3).
+ * Deny-by-default at every gate (SR1); blocked beats allowed (SR2); the external-visibility
+ * boundary (SR8) is hard-coded here and CANNOT be widened by any grant or recipe.
+ */
+function authorizeWithStandingGrant(
+  action: KeepsActionKind | (string & {}),
+  grant: StandingGrantContext,
+  options?: { now?: Date },
+): AuthorizationResult {
+  const now = options?.now ?? new Date();
+
+  // 1. Validity gates.
+  if (!isKnownRecipe(grant.recipeKey)) {
+    return { result: "denied", reason: `unknown recipe ${grant.recipeKey}` };
+  }
+  if (grant.status !== "active") {
+    return { result: "denied", reason: `grant is ${grant.status}, not active` };
+  }
+  if (grant.expiresAt && grant.expiresAt.getTime() <= now.getTime()) {
+    return { result: "denied", reason: "grant expired" };
+  }
+
+  // 2. Blocked beats allowed (SR2).
+  if (grant.blockedActionKinds.includes(action as KeepsActionKind)) {
+    return { result: "denied", reason: `action ${action} blocked by grant` };
+  }
+
+  // 3. SR8 hard external-visibility boundary — never authorizable by a standing grant.
+  if (action === "send_email" || action === "share_loop" || action === "reveal_source") {
+    return { result: "denied", reason: `${action} is never authorizable by a standing grant` };
+  }
+
+  // 4. Must be inside the grant's allowed envelope.
+  if (!grant.allowedActionKinds.includes(action as KeepsActionKind)) {
+    return { result: "denied", reason: `action ${action} not in grant allowed kinds` };
+  }
+
+  // 5. SR8 escalation — anything visible to another person still needs per-run approval.
+  if (action === "send_slack_message") {
+    return { result: "needs_approval", reason: "Slack send always requires per-run approval" };
+  }
+  if (action === "create_calendar_event" && grant.hasAttendees) {
+    return { result: "needs_approval", reason: "calendar event with attendees requires approval" };
+  }
+
+  // 6. Caps (usage supplied by the caller).
+  const cap = grant.caps?.[action as KeepsActionKind];
+  if (cap) {
+    const used = grant.capUsage?.[action as KeepsActionKind] ?? 0;
+    if (used >= cap.limit) {
+      return { result: "denied", reason: `cap exhausted for ${action} (${used}/${cap.limit})` };
+    }
+  }
+
+  return { result: "allowed" };
 }
