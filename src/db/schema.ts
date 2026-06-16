@@ -425,6 +425,8 @@ export const sourceEvidence = pgTable(
     endOffset: integer("end_offset"),
     metadata: jsonb("metadata").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Wave 0 (org-visibility): NULLABLE until backfill.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
   },
   (table) => ({
     userIdx: index("source_evidence_user_idx").on(table.userId),
@@ -468,9 +470,14 @@ export const loops = pgTable(
     // Phase 7: entity graph links (owner_text/requester_text kept as provenance fallback)
     ownerEntityId: uuid("owner_entity_id").references(() => entities.id, { onDelete: "set null" }),
     requesterEntityId: uuid("requester_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    // Wave 0 (org-visibility): NULLABLE until backfill; a later migration tightens org_id to NOT NULL.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
+    scopeId: uuid("scope_id").references((): AnyPgColumn => scopes.id, { onDelete: "set null" }),
   },
   (table) => ({
     userStatusIdx: index("loops_user_status_idx").on(table.userId, table.status),
+    orgIdx: index("loops_org_idx").on(table.orgId),
+    scopeIdx: index("loops_scope_idx").on(table.scopeId),
     inboundEmailIdx: index("loops_inbound_email_idx").on(table.inboundEmailId),
     sourceEvidenceIdx: index("loops_source_evidence_idx").on(table.sourceEvidenceId),
     ownerEntityIdx: index("loops_owner_entity_idx").on(table.ownerEntityId),
@@ -865,6 +872,10 @@ export const entities = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Wave 0 (org-visibility): NULLABLE until backfill. Entity canonicalization (0022) flips the
+    // per-user unique indexes below to per-org — that is the destructive, review-gated step.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
+    scopeId: uuid("scope_id").references((): AnyPgColumn => scopes.id, { onDelete: "set null" }),
   },
   (table) => ({
     canonicalEmailIdx: uniqueIndex("entities_user_canonical_email_unique")
@@ -876,6 +887,8 @@ export const entities = pgTable(
       .where(sql`kind = 'company'`),
     userKindIdx: index("entities_user_kind_idx").on(table.userId, table.kind),
     mergedIntoIdx: index("entities_merged_into_idx").on(table.mergedIntoEntityId),
+    orgIdx: index("entities_org_idx").on(table.orgId),
+    scopeIdx: index("entities_scope_idx").on(table.scopeId),
   }),
 );
 
@@ -901,6 +914,116 @@ export const loopEntities = pgTable(
     ),
     entityIdx: index("loop_entities_entity_idx").on(table.entityId),
     loopIdx: index("loop_entities_loop_idx").on(table.loopId),
+  }),
+);
+
+// ── Wave 0 (Org-Visibility Re-Founding): tenancy + canView relationship graph ──
+export const orgMemberRoleEnum = pgEnum("org_member_role", ["owner", "admin", "member"]);
+export const scopeKindEnum = pgEnum("scope_kind", ["org_root", "deal", "account", "team"]);
+export const visibilityRelationEnum = pgEnum("visibility_relation", [
+  "org_admin",
+  "manager_of",
+  "scope_member",
+  "explicit_share",
+]);
+export const visibilityObjectTypeEnum = pgEnum("visibility_object_type", [
+  "org",
+  "user",
+  "scope",
+  "loop",
+  "entity",
+]);
+
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Mirrors a Clerk Organization (already used for billing). NULL for a personal org. */
+    clerkOrgId: text("clerk_org_id"),
+    name: text("name").notNull().default(""),
+    /** A personal org is the degenerate single-member case (the old per-user behavior). */
+    isPersonal: boolean("is_personal").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clerkOrgIdIdx: uniqueIndex("organizations_clerk_org_id_unique")
+      .on(table.clerkOrgId)
+      .where(sql`clerk_org_id IS NOT NULL`),
+  }),
+);
+
+export const orgMemberships = pgTable(
+  "org_memberships",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: orgMemberRoleEnum("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUserUnique: uniqueIndex("org_memberships_org_user_unique").on(table.orgId, table.userId),
+    userIdx: index("org_memberships_user_idx").on(table.userId),
+  }),
+);
+
+export const scopes = pgTable(
+  "scopes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: scopeKindEnum("kind").notNull().default("team"),
+    name: text("name").notNull().default(""),
+    /** Delegated scope owner: manages membership without full org admin. NULL = admin-only. */
+    ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("scopes_org_idx").on(table.orgId),
+  }),
+);
+
+/**
+ * Relation tuples the canView resolver unions over (Zanzibar-style). subject_user_id is
+ * empowered to see object_id, interpreted per object_type (org_admin→org, manager_of→user,
+ * scope_member→scope, explicit_share→loop|entity). revoked_at IS NULL = active; revocation
+ * is immediate (the active partial index excludes revoked rows).
+ */
+export const visibilityEdges = pgTable(
+  "visibility_edges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    subjectUserId: uuid("subject_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    relation: visibilityRelationEnum("relation").notNull(),
+    objectType: visibilityObjectTypeEnum("object_type").notNull(),
+    objectId: uuid("object_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    subjectActiveIdx: index("visibility_edges_subject_active_idx")
+      .on(table.subjectUserId, table.orgId)
+      .where(sql`revoked_at IS NULL`),
+    tupleUnique: uniqueIndex("visibility_edges_tuple_unique").on(
+      table.subjectUserId,
+      table.relation,
+      table.objectType,
+      table.objectId,
+    ),
   }),
 );
 
@@ -1109,3 +1232,17 @@ export type StandingGrantStatus = typeof standingGrantStatusEnum.enumValues[numb
 export type AutomationRunStatus = typeof automationRunStatusEnum.enumValues[number];
 export type AutomationRunActionStatus = typeof automationRunActionStatusEnum.enumValues[number];
 export type AutomationTriggerKind = typeof automationTriggerKindEnum.enumValues[number];
+
+// Wave 0 (org-visibility) type exports
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+export type OrgMembership = typeof orgMemberships.$inferSelect;
+export type NewOrgMembership = typeof orgMemberships.$inferInsert;
+export type Scope = typeof scopes.$inferSelect;
+export type NewScope = typeof scopes.$inferInsert;
+export type VisibilityEdge = typeof visibilityEdges.$inferSelect;
+export type NewVisibilityEdge = typeof visibilityEdges.$inferInsert;
+export type OrgMemberRole = typeof orgMemberRoleEnum.enumValues[number];
+export type ScopeKind = typeof scopeKindEnum.enumValues[number];
+export type VisibilityRelation = typeof visibilityRelationEnum.enumValues[number];
+export type VisibilityObjectType = typeof visibilityObjectTypeEnum.enumValues[number];
