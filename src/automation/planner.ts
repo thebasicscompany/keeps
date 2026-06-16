@@ -25,14 +25,23 @@ export function planAutomationRun(input: {
   /** Per-action recent usage for the plan-time cap check (caller supplies). */
   capUsage?: Partial<Record<KeepsActionKind, number>>;
   userTimezone?: string;
+  /**
+   * Skip the quiet-hours gate. Set ONLY for an explicit, user-initiated "Run now" — the user is
+   * actively asking, so the proactive-quiet-window protection (SR7) doesn't apply. Cron-triggered
+   * planning leaves this false so proactive runs still defer overnight.
+   */
+  bypassQuietHours?: boolean;
   now: Date;
 }): PlanResult {
   const recipe = getRecipe(input.recipeKey);
   if (!recipe) return { kind: "skip", reason: `unknown recipe ${input.recipeKey}` };
 
   // Quiet hours (SR7): defer proactive recipes. Explicit-command recipes carry empty
-  // quiet hours → never deferred (the user is actively asking).
-  if (inQuietHours({ quietHours: recipe.defaultQuietHours, now: input.now, tz: input.userTimezone })) {
+  // quiet hours → never deferred; an explicit "Run now" bypasses the gate entirely.
+  if (
+    !input.bypassQuietHours &&
+    inQuietHours({ quietHours: recipe.defaultQuietHours, now: input.now, tz: input.userTimezone })
+  ) {
     return { kind: "skip", reason: "quiet hours" };
   }
 

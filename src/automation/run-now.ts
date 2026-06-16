@@ -98,6 +98,8 @@ export async function runAutomationNow(input: {
     draft: built.input.draft,
     capUsage,
     userTimezone: "UTC",
+    // Explicit user-initiated run — the user is actively asking, so quiet hours don't apply.
+    bypassQuietHours: true,
     now,
   });
 
