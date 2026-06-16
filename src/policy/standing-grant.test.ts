@@ -103,3 +103,42 @@ describe("authorize() — standing-grant truth table (Phase V2)", () => {
     expect(authorize("create_private_report", { userId: "u1" }).result).toBe("allowed");
   });
 });
+
+describe("authorize() — zone-aware SR8 (Wave 2; targetZone supplied)", () => {
+  it("outward kind to a reachable zone → needs_approval (in_scope / external_counterparty)", () => {
+    expect(authz("send_slack_message", grant({ targetZone: "in_scope" })).result).toBe("needs_approval");
+    expect(authz("send_slack_message", grant({ targetZone: "external_counterparty" })).result).toBe(
+      "needs_approval",
+    );
+  });
+
+  it("outward kind across a boundary → DENIED (the leak surface) — stricter than the kind-only default", () => {
+    expect(authz("send_slack_message", grant({ targetZone: "cross_scope_internal" })).result).toBe("denied");
+    expect(authz("send_slack_message", grant({ targetZone: "external_unscoped" })).result).toBe("denied");
+    expect(
+      authz("create_calendar_event", grant({ targetZone: "cross_scope_internal", hasAttendees: true })).result,
+    ).toBe("denied");
+  });
+
+  it("private kinds stay allowed in every zone", () => {
+    expect(authz("create_private_report", grant({ targetZone: "external_unscoped" })).result).toBe("allowed");
+    expect(authz("send_private_email_to_user", grant({ targetZone: "cross_scope_internal" })).result).toBe(
+      "allowed",
+    );
+  });
+
+  it("zone path still respects the allowed envelope + caps", () => {
+    expect(
+      authz(
+        "send_slack_message",
+        grant({ targetZone: "in_scope", allowedActionKinds: ["send_private_email_to_user"] }),
+      ).result,
+    ).toBe("denied");
+    const capped = grant({
+      targetZone: "in_scope",
+      caps: { create_private_report: { limit: 1, window: "day" } },
+      capUsage: { create_private_report: 1 },
+    });
+    expect(authz("create_private_report", capped).result).toBe("denied");
+  });
+});

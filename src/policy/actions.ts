@@ -1,5 +1,6 @@
 import type { StandingGrantContext } from "@/automation/types";
 import { isKnownRecipe } from "@/automation/recipe-registry";
+import { zoneDecisionFor } from "@/visibility/zones";
 
 export type ExternalActionKind =
   | "send_email"
@@ -205,22 +206,39 @@ function authorizeWithStandingGrant(
     return { result: "denied", reason: `action ${action} blocked by grant` };
   }
 
-  // 3. SR8 hard external-visibility boundary — never authorizable by a standing grant.
-  if (action === "send_email" || action === "share_loop" || action === "reveal_source") {
-    return { result: "denied", reason: `${action} is never authorizable by a standing grant` };
-  }
-
-  // 4. Must be inside the grant's allowed envelope.
-  if (!grant.allowedActionKinds.includes(action as KeepsActionKind)) {
-    return { result: "denied", reason: `action ${action} not in grant allowed kinds` };
-  }
-
-  // 5. SR8 escalation — anything visible to another person still needs per-run approval.
-  if (action === "send_slack_message") {
-    return { result: "needs_approval", reason: "Slack send always requires per-run approval" };
-  }
-  if (action === "create_calendar_event" && grant.hasAttendees) {
-    return { result: "needs_approval", reason: "calendar event with attendees requires approval" };
+  if (grant.targetZone) {
+    // ── Zone-aware SR8 (Wave 2) ──────────────────────────────────────────────
+    // The recipient's zone (computed by the executor via classifyZone) decides: escalate when
+    // reachable within a shared scope (in_scope / external_counterparty), deny across a boundary
+    // (cross_scope_internal / external_unscoped). Still bounded by the grant's allowed envelope.
+    if (!grant.allowedActionKinds.includes(action as KeepsActionKind)) {
+      return { result: "denied", reason: `action ${action} not in grant allowed kinds` };
+    }
+    const zoneDecision = zoneDecisionFor(action as KeepsActionKind, grant.targetZone);
+    if (zoneDecision === "denied") {
+      return { result: "denied", reason: `${action} denied: recipient zone ${grant.targetZone}` };
+    }
+    if (zoneDecision === "needs_approval") {
+      return { result: "needs_approval", reason: `${action} to zone ${grant.targetZone} requires approval` };
+    }
+    // allowed (private kind) → fall through to caps.
+  } else {
+    // ── Legacy kind-only SR8 (unchanged; runs when no targetZone is supplied) ──
+    // 3. SR8 hard external-visibility boundary — never authorizable by a standing grant.
+    if (action === "send_email" || action === "share_loop" || action === "reveal_source") {
+      return { result: "denied", reason: `${action} is never authorizable by a standing grant` };
+    }
+    // 4. Must be inside the grant's allowed envelope.
+    if (!grant.allowedActionKinds.includes(action as KeepsActionKind)) {
+      return { result: "denied", reason: `action ${action} not in grant allowed kinds` };
+    }
+    // 5. SR8 escalation — anything visible to another person still needs per-run approval.
+    if (action === "send_slack_message") {
+      return { result: "needs_approval", reason: "Slack send always requires per-run approval" };
+    }
+    if (action === "create_calendar_event" && grant.hasAttendees) {
+      return { result: "needs_approval", reason: "calendar event with attendees requires approval" };
+    }
   }
 
   // 6. Caps (usage supplied by the caller).

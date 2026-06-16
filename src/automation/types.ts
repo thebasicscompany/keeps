@@ -6,6 +6,7 @@
  * the mutual policy<->types reference creates no import cycle.
  */
 import type { KeepsActionKind } from "@/policy/actions";
+import type { SR8Zone } from "@/visibility/zones";
 
 export type RecipeKey =
   | "pre_meeting_brief"
@@ -47,6 +48,13 @@ export type StandingGrantContext = {
   capUsage?: Partial<Record<KeepsActionKind, number>>;
   /** True for a calendar_event action carrying attendees — forces approval per SR8. */
   hasAttendees?: boolean;
+  /**
+   * Wave 2 (zone-aware SR8): the recipient's zone relative to the viewer, computed by the
+   * executor via classifyZone. When present, the standing-grant gate uses zoneDecisionFor
+   * (deny across a scope boundary, escalate when reachable). When ABSENT, the legacy kind-only
+   * SR8 rules run unchanged (conservative default: send_email/share/reveal denied, slack escalates).
+   */
+  targetZone?: SR8Zone;
 };
 
 /** The decision the policy gate returns (mirrors AuthorizationResult from @/policy/actions). */
