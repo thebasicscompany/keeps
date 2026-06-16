@@ -102,9 +102,16 @@ export type PreMeetingCandidate = {
   attendees: AttendeeWithLoops[];
 };
 
+/** A loader result that distinguishes "no calendar" / "no events" / "no match" / "match". */
+export type CalendarLoadResult<T> = {
+  hasCalendar: boolean;
+  eventsRead: number;
+  candidate: T | null;
+};
+
 /**
  * The soonest UPCOMING meeting (within `leadMinutes`) whose attendees include someone the user has
- * open loops with. Returns null when no connected calendar / no qualifying meeting.
+ * open loops with. Returns a diagnostic result so the caller can explain WHY nothing fired.
  */
 export async function loadPreMeetingCandidate(input: {
   userId: string;
@@ -112,9 +119,9 @@ export async function loadPreMeetingCandidate(input: {
   leadMinutes?: number;
   /** Injectable Composio reader for tests. */
   readEvents?: typeof readCalendarEvents;
-}): Promise<PreMeetingCandidate | null> {
+}): Promise<CalendarLoadResult<PreMeetingCandidate>> {
   const cal = await loadConnectedCalendar(input.userId);
-  if (!cal) return null;
+  if (!cal) return { hasCalendar: false, eventsRead: 0, candidate: null };
   const leadMinutes = input.leadMinutes ?? 24 * 60; // default: look one day ahead
   const timeMin = input.now;
   const timeMax = new Date(input.now.getTime() + leadMinutes * 60 * 1000);
@@ -136,13 +143,17 @@ export async function loadPreMeetingCandidate(input: {
     const attendees = await attendeesWithOpenLoops(input.userId, emails);
     if (attendees.some((a) => a.openLoops.length > 0)) {
       return {
-        calendarEventId: ev.id,
-        meetingTimeLabel: meetingTimeLabel(ev.startIso),
-        attendees,
+        hasCalendar: true,
+        eventsRead: events.length,
+        candidate: {
+          calendarEventId: ev.id,
+          meetingTimeLabel: meetingTimeLabel(ev.startIso),
+          attendees,
+        },
       };
     }
   }
-  return null;
+  return { hasCalendar: true, eventsRead: events.length, candidate: null };
 }
 
 export type PostMeetingCandidate = {
@@ -152,16 +163,16 @@ export type PostMeetingCandidate = {
 
 /**
  * The most-recent meeting that ENDED within `lookbackMinutes` and had at least one other attendee.
- * (The "was a loop already captured?" absence signal is computed by the builder.) Null if none.
+ * (The "was a loop already captured?" absence signal is computed by the builder.) Diagnostic result.
  */
 export async function loadPostMeetingCandidate(input: {
   userId: string;
   now: Date;
   lookbackMinutes?: number;
   readEvents?: typeof readCalendarEvents;
-}): Promise<PostMeetingCandidate | null> {
+}): Promise<CalendarLoadResult<PostMeetingCandidate>> {
   const cal = await loadConnectedCalendar(input.userId);
-  if (!cal) return null;
+  if (!cal) return { hasCalendar: false, eventsRead: 0, candidate: null };
   const lookbackMinutes = input.lookbackMinutes ?? 4 * 60; // default: meetings ended in last 4h
   const timeMin = new Date(input.now.getTime() - lookbackMinutes * 60 * 1000);
   const timeMax = input.now;
@@ -183,9 +194,13 @@ export async function loadPostMeetingCandidate(input: {
     if (emails.length === 0) continue;
     const matched = await attendeesWithOpenLoops(input.userId, emails);
     const attendeeName = matched[0]?.displayName ?? ev.title;
-    return { calendarEventId: ev.id, attendeeName };
+    return {
+      hasCalendar: true,
+      eventsRead: events.length,
+      candidate: { calendarEventId: ev.id, attendeeName },
+    };
   }
-  return null;
+  return { hasCalendar: true, eventsRead: events.length, candidate: null };
 }
 
 /** Attendee emails minus the calendar owner's own address. */
