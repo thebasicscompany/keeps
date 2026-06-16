@@ -40,6 +40,12 @@ export type LinkLoopEntitiesInput = {
    * (as a person or, via its domain, a company).
    */
   agentEmails?: string[];
+  /**
+   * Wave 1b (org-visibility): when present, person resolution is org-canonical (a mention finds
+   * the org's existing row + new rows are stamped org_id). The caller supplies it only when
+   * ORG_VISIBILITY_ENABLED is on. Companies stay per-user until company org-scoping lands.
+   */
+  orgId?: string;
 };
 
 type Db = ReturnType<typeof getDb>;
@@ -145,7 +151,7 @@ function isSelfLabel(text: string | null): boolean {
  */
 export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): Promise<void> {
   const database = db ?? getDb();
-  const { userId, loopId, ownerText, requesterText, selfEmail } = input;
+  const { userId, loopId, ownerText, requesterText, selfEmail, orgId } = input;
 
   // -------------------------------------------------------------------------
   // Step 1: Build the deduplicated participant pool
@@ -215,7 +221,7 @@ export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): P
 
   for (const p of pool) {
     // Resolve person entity
-    const personEntity = await resolveEntity({ userId, name: p.name, email: p.email }, database);
+    const personEntity = await resolveEntity({ userId, name: p.name, email: p.email, orgId }, database);
     const key = dedupKey(p);
     if (key) poolEntityById.set(key, personEntity.id);
 
@@ -249,6 +255,7 @@ export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): P
     pool,
     poolEntityById,
     database,
+    orgId,
   });
 
   const requesterEntityId = await resolveRoleEntity({
@@ -259,6 +266,7 @@ export async function linkLoopEntities(input: LinkLoopEntitiesInput, db?: Db): P
     pool,
     poolEntityById,
     database,
+    orgId,
   });
 
   // Update loops row FK columns (only those that changed from null)
@@ -286,8 +294,9 @@ async function resolveRoleEntity(args: {
   pool: LinkParticipant[];
   poolEntityById: Map<string, string>;
   database: Db;
+  orgId?: string;
 }): Promise<string | null> {
-  const { userId, loopId, roleText, role, pool, poolEntityById, database } = args;
+  const { userId, loopId, roleText, role, pool, poolEntityById, database, orgId } = args;
 
   // Empty / self-label → no role entity
   if (isSelfLabel(roleText)) return null;
@@ -324,7 +333,7 @@ async function resolveRoleEntity(args: {
     entityId = matchedEntityId;
   } else {
     // Name-only resolve (ownerText/requesterText not in pool)
-    const resolved = await resolveEntity({ userId, name: textTrimmed, email: null }, database);
+    const resolved = await resolveEntity({ userId, name: textTrimmed, email: null, orgId }, database);
     entityId = resolved.id;
   }
 

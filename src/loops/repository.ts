@@ -7,12 +7,13 @@ import {
   loopEvents,
   loops,
   nudges,
+  orgMemberships,
   sourceEvidence,
   users,
 } from "@/db/schema";
 import type { LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
-import { getOptionalEnv } from "@/config/env";
+import { getOptionalEnv, isOrgVisibilityEnabled } from "@/config/env";
 import { linkLoopEntities } from "@/entities/link";
 import { loadExtractionContext } from "@/agent/extraction-context";
 import type { ViewerScope } from "@/visibility/can-view";
@@ -218,6 +219,22 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         (value): value is string => Boolean(value),
       );
 
+      // Wave 1b: resolve the user's org once (flag-gated) so entity linking creates org-canonical
+      // person rows. Flag off / no membership → undefined → legacy per-user resolution.
+      let orgId: string | undefined;
+      if (isOrgVisibilityEnabled()) {
+        try {
+          const [membership] = await this.db
+            .select({ orgId: orgMemberships.orgId })
+            .from(orgMemberships)
+            .where(eq(orgMemberships.userId, input.email.userId))
+            .limit(1);
+          orgId = membership?.orgId ?? undefined;
+        } catch (err) {
+          console.error("[entity-link] orgId lookup failed; proceeding per-user", err);
+        }
+      }
+
       for (const job of linkJobs) {
         try {
           await linkLoopEntities({
@@ -229,6 +246,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
             sender: input.email.normalized.from,
             selfEmail,
             agentEmails,
+            orgId,
           });
         } catch (err) {
           console.error(`[entity-link] failed for loop ${job.loopId}; left unlinked`, err);
