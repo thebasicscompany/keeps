@@ -53,6 +53,7 @@ function outcomeLine(o: Outcome): string {
   if (o.status === "completed") {
     if (o.result?.sent) return `Sent — a private email landed in your inbox (${String(o.result.to ?? "you")}).`;
     if (o.result?.reportId) return "Done — a private report was created.";
+    if (o.result?.created) return "Created — a self-only event was added to your calendar.";
     if (o.result?.skipped) return `Nothing to do (${String(o.result.skipped)}).`;
     return "Done.";
   }

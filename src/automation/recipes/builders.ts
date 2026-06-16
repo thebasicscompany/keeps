@@ -97,7 +97,39 @@ export function buildStaleLoopFollowup(ctx: StaleLoopContext): RecipePlanInput {
   };
 }
 
-// ── Recipe 4: self-only calendar reminder bounds (used by the @Calendar hook) ──
+// ── Recipe 4: self-only calendar reminder ────────────────────────────────────
+export type SelfOnlyReminderContext = {
+  userId: string;
+  eventTitle: string;
+  /** ISO 8601 start time. */
+  whenAtIso: string;
+  durationMinutes: number;
+  loopId?: string;
+};
+
+/**
+ * Build a SELF-ONLY calendar reminder (no attendees → never externally visible, so the grant can
+ * auto-allow it per SR8). The connector dispatch reads the event spec off the action target.
+ */
+export function buildSelfOnlyCalendarReminder(ctx: SelfOnlyReminderContext): RecipePlanInput {
+  return {
+    intendedActions: [
+      {
+        kind: "create_calendar_event",
+        target: {
+          eventTitle: ctx.eventTitle,
+          whenAt: ctx.whenAtIso,
+          durationMinutes: ctx.durationMinutes,
+          ...(ctx.loopId ? { loopId: ctx.loopId } : {}),
+        },
+      },
+    ],
+    provenanceContext: {},
+    contextUsed: ctx.loopId ? { loopIds: [ctx.loopId] } : {},
+    draft: { subject: ctx.eventTitle, body: `Self-only reminder at ${ctx.whenAtIso}.` },
+  };
+}
+
 export type SelfOnlyCalendarBounds = { maxDurationMinutes?: number; maxLookaheadDays?: number };
 
 export function selfOnlyCalendarWithinBounds(input: {

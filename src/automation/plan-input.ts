@@ -7,12 +7,13 @@
  *
  * SR5: this only LOADS context + calls pure builders. Permission lives in the planner/executor.
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { loops } from "@/db/schema";
 import {
   buildPostMeetingPrompt,
   buildPreMeetingBrief,
+  buildSelfOnlyCalendarReminder,
   buildStaleLoopFollowup,
   type RecipePlanInput,
 } from "@/automation/recipes/builders";
@@ -97,6 +98,27 @@ export async function buildPlanInputForRecipe(
     return { ok: true, input, triggerRef: res.candidate.calendarEventId };
   }
 
-  // self_only_calendar_reminder is driven by the explicit @Calendar command path, not a sweep.
+  if (recipeKey === "self_only_calendar_reminder") {
+    // Tie the reminder to the user's longest-idle open loop so it's meaningful; fall back to a
+    // generic reminder if they have none. Self-only (no attendees) → grant auto-allows (SR8).
+    const ACTIVE = ["open", "waiting_on_me", "waiting_on_other"] as const;
+    const [loop] = await getDb()
+      .select({ id: loops.id, summary: loops.summary })
+      .from(loops)
+      .where(and(eq(loops.userId, ctx.userId), inArray(loops.status, [...ACTIVE])))
+      .orderBy(asc(loops.updatedAt))
+      .limit(1);
+    const whenAtIso = new Date(ctx.now.getTime() + 60 * 60 * 1000).toISOString(); // +1h
+    const eventTitle = loop ? `Follow up: ${loop.summary}` : "Keeps reminder";
+    const input = buildSelfOnlyCalendarReminder({
+      userId: ctx.userId,
+      eventTitle,
+      whenAtIso,
+      durationMinutes: 30,
+      ...(loop ? { loopId: loop.id } : {}),
+    });
+    return { ok: true, input, triggerRef: loop?.id ?? null };
+  }
+
   return { ok: false, reason: `recipe ${recipeKey} is not run-now eligible` };
 }
