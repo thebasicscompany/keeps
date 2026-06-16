@@ -23,12 +23,14 @@
  * All output is serialization-safe (ISO strings, no Date objects, no class instances).
  */
 
-import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { entities, loopEntities, loops } from "@/db/schema";
 import type { EntityKind } from "@/db/schema";
 import { normalizeEmail } from "@/entities/resolve";
 import type { LoopStatus } from "@/agent/schemas";
+import type { ViewerScope } from "@/visibility/can-view";
+import { visibleLoopFilter, visibleLoopSql } from "@/visibility/visible-filter";
 
 // ---------------------------------------------------------------------------
 // Public types (stable — imported by B1 and B2)
@@ -68,6 +70,13 @@ export type LoadExtractionContextInput = {
   participants: { name: string | null; email: string | null }[];
   queryText?: string | null;          // subject + short snippet for the trigram generator
   limit?: number;                     // max openLoops to return; default 10
+  /**
+   * Wave 1 (org-visibility): when present, the LOOP candidate generators scope to
+   * canView(viewer, loop) instead of `loops.user_id = userId`. The caller supplies this only
+   * when ORG_VISIBILITY_ENABLED is on and a scope was loaded; otherwise the legacy per-user
+   * path runs byte-for-byte. Entity lookups stay per-user until org-canonical entities (0.3).
+   */
+  viewerScope?: ViewerScope;
 };
 
 // ---------------------------------------------------------------------------
@@ -137,7 +146,15 @@ export async function loadExtractionContext(
   db?: any,
 ): Promise<ExtractionContext> {
   const database: Db = db ?? getDb();
-  const { userId, threadId, participants, queryText, limit = DEFAULT_LIMIT } = input;
+  const { userId, threadId, participants, queryText, limit = DEFAULT_LIMIT, viewerScope } = input;
+
+  // Wave 1: the loop candidate scope. With a viewerScope → canView(viewer, loop) (org-owned,
+  // hierarchical); otherwise the legacy per-user predicate (unchanged default). `loopScope` is the
+  // Drizzle `.select()` predicate; `loopScopeSql(alias)` is the raw-SQL twin for the trigram/count
+  // generators. The two are kept in lockstep by visible-filter.ts.
+  const loopScope: SQL = viewerScope ? visibleLoopFilter(viewerScope) : eq(loops.userId, userId);
+  const loopScopeSql = (alias: string): SQL =>
+    viewerScope ? visibleLoopSql(viewerScope, alias) : sql`${sql.raw(alias)}.user_id = ${userId}`;
 
   // -------------------------------------------------------------------------
   // Step 0: Resolve participant entity ids (READ-ONLY)
@@ -203,7 +220,7 @@ export async function loadExtractionContext(
       .from(loops)
       .where(
         and(
-          eq(loops.userId, userId),
+          loopScope,
           eq(loops.emailThreadId, threadId),
           inArray(loops.status, OPEN_STATUSES),
         ),
@@ -254,7 +271,7 @@ export async function loadExtractionContext(
       .from(loops)
       .where(
         and(
-          eq(loops.userId, userId),
+          loopScope,
           inArray(loops.status, OPEN_STATUSES),
           or(
             viaJoinLoopIds.length > 0 ? inArray(loops.id, viaJoinLoopIds) : sql`false`,
@@ -304,7 +321,7 @@ export async function loadExtractionContext(
           similarity(l.summary, ${trimmedQuery}) AS sim
         FROM loops AS l
         WHERE
-          l.user_id = ${userId}
+          ${loopScopeSql("l")}
           AND l.status = ANY(${sql.raw(openStatusesArrayLiteral)}::loop_status[])
           AND similarity(l.summary, ${trimmedQuery}) > ${TRIGRAM_THRESHOLD}
         ORDER BY sim DESC
@@ -380,7 +397,7 @@ export async function loadExtractionContext(
     .from(loops)
     .where(
       and(
-        eq(loops.userId, userId),
+        loopScope,
         inArray(loops.status, OPEN_STATUSES),
       ),
     )
@@ -536,14 +553,14 @@ export async function loadExtractionContext(
           SELECT owner_entity_id AS e_id
           FROM loops
           WHERE
-            user_id = ${userId}
+            ${loopScopeSql("loops")}
             AND status = ANY(${sql.raw(openStatusesLit)}::loop_status[])
             AND owner_entity_id = ANY(${sql.raw(entityIdsLit)})
           UNION ALL
           SELECT requester_entity_id AS e_id
           FROM loops
           WHERE
-            user_id = ${userId}
+            ${loopScopeSql("loops")}
             AND status = ANY(${sql.raw(openStatusesLit)}::loop_status[])
             AND requester_entity_id = ANY(${sql.raw(entityIdsLit)})
           UNION ALL
@@ -551,7 +568,7 @@ export async function loadExtractionContext(
           FROM loop_entities AS le
           INNER JOIN loops ON loops.id = le.loop_id
           WHERE
-            loops.user_id = ${userId}
+            ${loopScopeSql("loops")}
             AND loops.status = ANY(${sql.raw(openStatusesLit)}::loop_status[])
             AND le.entity_id = ANY(${sql.raw(entityIdsLit)})
         ) AS combined

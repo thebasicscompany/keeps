@@ -43,6 +43,10 @@ const envSchema = z.object({
   // Shared-secret for the Postmark bounce/complaint/delivery webhook (mirrors
   // KEEPS_INBOUND_WEBHOOK_SECRET). Falls back to KEEPS_INBOUND_WEBHOOK_SECRET if unset.
   KEEPS_POSTMARK_WEBHOOK_SECRET: z.string().min(12).optional(),
+  // Wave 0/1 (org-visibility re-founding). Default OFF: reads stay legacy per-user scoped.
+  // Turning it on requires migration 0021 applied + the personal-org backfill run, else
+  // reads filter on a NULL org_id and return nothing. "1"/"true" enables.
+  ORG_VISIBILITY_ENABLED: z.string().optional(),
 });
 
 export type KeepsEnv = z.infer<typeof envSchema>;
@@ -65,4 +69,10 @@ export function getOptionalEnv(): KeepsEnv {
   }
 
   return result.data;
+}
+
+/** Wave 0/1 feature flag: is org-owned hierarchical visibility (canView-scoped reads) live? */
+export function isOrgVisibilityEnabled(): boolean {
+  const v = getOptionalEnv().ORG_VISIBILITY_ENABLED;
+  return v === "1" || v === "true";
 }

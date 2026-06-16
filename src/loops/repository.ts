@@ -15,6 +15,7 @@ import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } fr
 import { getOptionalEnv } from "@/config/env";
 import { linkLoopEntities } from "@/entities/link";
 import { loadExtractionContext } from "@/agent/extraction-context";
+import type { ViewerScope } from "@/visibility/can-view";
 import { normalizeEmail } from "@/entities/resolve";
 import type {
   LoopProcessingRepository,
@@ -426,6 +427,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     threadId: string | null;
     participants: { name: string | null; email: string | null }[];
     queryText: string | null;
+    viewerScope?: ViewerScope;
   }): Promise<OpenLoopContext> {
     // Reuse B3's retrieval (DB-injected). It already resolves participant
     // entities internally, but does not expose their ids — so we resolve the
@@ -437,6 +439,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         threadId: input.threadId,
         participants: input.participants,
         queryText: input.queryText,
+        viewerScope: input.viewerScope,
       },
       this.db,
     );
