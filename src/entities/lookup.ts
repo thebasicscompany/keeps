@@ -21,10 +21,12 @@
  * only ever see canonical (surviving) entities.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { entities } from "@/db/schema";
 import { normalizeEmail } from "@/entities/resolve";
+import type { ViewerScope } from "@/visibility/can-view";
+import { visibleEntityFilter } from "@/visibility/visible-filter";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -52,13 +54,17 @@ function looksLikeDomain(query: string): boolean {
  * Accepts an optional drizzle db handle for testing; defaults to getDb().
  */
 export async function findEntityByQuery(
-  input: { userId: string; query: string },
+  input: { userId: string; query: string; viewerScope?: ViewerScope },
   db?: Db,
 ): Promise<EntityLookupResult | null> {
   const database = db ?? getDb();
-  const { userId, query } = input;
+  const { userId, query, viewerScope } = input;
   const trimmed = query.trim();
   if (!trimmed) return null;
+
+  // Wave 1b: scope entity recall to what the viewer can see (don't leak entity EXISTENCE across
+  // scopes). Flag off / no scope → legacy per-user. Each path also ANDs isNull(mergedIntoEntityId).
+  const entityScope: SQL = viewerScope ? visibleEntityFilter(viewerScope) : eq(entities.userId, userId);
 
   // ── 1. Email lookup ──────────────────────────────────────────────────────────
   if (looksLikeEmail(trimmed)) {
@@ -70,7 +76,7 @@ export async function findEntityByQuery(
       .from(entities)
       .where(
         and(
-          eq(entities.userId, userId),
+          entityScope,
           eq(entities.canonicalEmail, normalized),
           isNull(entities.mergedIntoEntityId),
         ),
@@ -88,7 +94,7 @@ export async function findEntityByQuery(
       .from(entities)
       .where(
         and(
-          eq(entities.userId, userId),
+          entityScope,
           eq(entities.kind, "company"),
           sql`${entities.metadata}->>'domain' = ${domainLower}`,
           isNull(entities.mergedIntoEntityId),
@@ -107,7 +113,7 @@ export async function findEntityByQuery(
     .from(entities)
     .where(
       and(
-        eq(entities.userId, userId),
+        entityScope,
         isNull(entities.mergedIntoEntityId),
         sql`(
           lower(${entities.displayName}) = ${nameLower}
@@ -133,7 +139,7 @@ export async function findEntityByQuery(
     .from(entities)
     .where(
       and(
-        eq(entities.userId, userId),
+        entityScope,
         eq(entities.kind, "company"),
         isNull(entities.mergedIntoEntityId),
         sql`${entities.metadata}->>'domain' ILIKE ${"%" + trimmed.toLowerCase() + "%"}`,
