@@ -47,9 +47,20 @@ export type InsertRunInput = {
   provenance?: Record<string, unknown>;
 };
 
+export type LoadedRun = {
+  id: string;
+  userId: string;
+  standingGrantId: string | null;
+  recipeKey: string;
+  status: AutomationRunStatus;
+  sandboxPlan: SandboxPlan;
+};
+
 export type AutomationRunRepository = {
   /** Insert a run; ON CONFLICT(idempotency_key) DO NOTHING. Returns the row id + whether it deduped. */
   insertRun(input: InsertRunInput): Promise<{ id: string; deduped: boolean }>;
+  /** Load a run + its stored sandbox plan (the executor consumes this). Null if missing. */
+  loadRun(runId: string): Promise<LoadedRun | null>;
   insertRunActions(
     runId: string,
     actions: { actionKind: string; target: Record<string, unknown> }[],
@@ -105,6 +116,30 @@ export class DrizzleAutomationRunRepository implements AutomationRunRepository {
       .limit(1);
     if (!existing) throw new Error("insertRun: conflict but no existing row found");
     return { id: existing.id, deduped: true };
+  }
+
+  async loadRun(runId: string): Promise<LoadedRun | null> {
+    const [r] = await this.db
+      .select({
+        id: automationRuns.id,
+        userId: automationRuns.userId,
+        standingGrantId: automationRuns.standingGrantId,
+        recipeKey: automationRuns.recipeKey,
+        status: automationRuns.status,
+        sandboxPlan: automationRuns.sandboxPlan,
+      })
+      .from(automationRuns)
+      .where(eq(automationRuns.id, runId))
+      .limit(1);
+    if (!r) return null;
+    return {
+      id: r.id,
+      userId: r.userId,
+      standingGrantId: r.standingGrantId,
+      recipeKey: r.recipeKey,
+      status: r.status as AutomationRunStatus,
+      sandboxPlan: r.sandboxPlan as unknown as SandboxPlan,
+    };
   }
 
   async insertRunActions(
