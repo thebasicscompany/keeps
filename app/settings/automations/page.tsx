@@ -170,7 +170,12 @@ export default async function AutomationsPage({
 
       {/* Recipe catalog */}
       <section data-testid="recipe-catalog">
-        <h3 className={`mb-3 ${labelClass}`}>Available automations</h3>
+        <h3 className={`mb-1 ${labelClass}`}>Available automations</h3>
+        <p className={`mb-3 text-[13px] ${mutedClass}`}>
+          Once enabled, these run on their own when the moment arrives (a loop goes quiet, a meeting
+          approaches). <span className="font-semibold text-[#14140F]">Run now</span> just previews one
+          immediately so you can see what it would do.
+        </p>
         <ul className="space-y-3">
           {catalog.map((r) => (
             <li
@@ -219,7 +224,12 @@ export default async function AutomationsPage({
                       Enabled
                     </span>
                     <form action={runAutomationNowAction.bind(null, r.key)}>
-                      <button type="submit" className={compactPrimaryButtonClass} data-testid={`run-now-${r.key}`}>
+                      <button
+                        type="submit"
+                        className={secondaryButtonClass}
+                        data-testid={`run-now-${r.key}`}
+                        title="Preview this automation now — it also runs on its own when the moment arrives."
+                      >
                         Run now
                       </button>
                     </form>
