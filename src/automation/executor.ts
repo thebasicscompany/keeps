@@ -14,6 +14,7 @@
 import { authorize, type KeepsActionKind } from "@/policy/actions";
 import type { IntendedAction, SandboxPlan } from "@/automation/sandbox-plan";
 import type { StandingGrantContext } from "@/automation/types";
+import type { SR8Zone } from "@/visibility/zones";
 
 export type RunActionStatus = "completed" | "needs_approval" | "cancelled" | "failed";
 
@@ -52,6 +53,12 @@ export async function executeAutomationRun(input: {
   userId: string;
   effects: ExecutorEffects;
   now?: Date;
+  /**
+   * Wave 3 (viewer-scoped SR8): classify an action's recipient zone (via classifyZone against the
+   * viewer's scope). When provided, authorize uses zone-aware SR8 — deny across a boundary,
+   * escalate when reachable. When ABSENT, the legacy kind-only SR8 runs (back-compat).
+   */
+  classifyActionZone?: (action: IntendedAction) => SR8Zone | undefined;
 }): Promise<ExecuteRunResult> {
   const now = input.now ?? new Date();
   const outcomes: RunActionOutcome[] = [];
@@ -70,11 +77,12 @@ export async function executeAutomationRun(input: {
       continue;
     }
 
+    const targetZone = input.classifyActionZone?.(action);
     const decision = authorize(
       action.kind,
       {
         userId: input.userId,
-        standingGrant: { ...grant, capUsage, hasAttendees: actionHasAttendees(action) },
+        standingGrant: { ...grant, capUsage, hasAttendees: actionHasAttendees(action), targetZone },
       },
       { now },
     );

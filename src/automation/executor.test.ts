@@ -100,4 +100,26 @@ describe("executeAutomationRun (FR6/FR7/SR3/SR8)", () => {
     expect(res.terminal).toBe("cancelled");
     expect(res.outcomes[0].reason).toContain("cap exhausted");
   });
+
+  it("zone-aware (Wave 3): Slack send to cross_scope_internal → cancelled (denied), never escalated", async () => {
+    const escalateToApproval = vi.fn(async () => ({ approvalRequestId: "x" }));
+    const res = await executeAutomationRun({
+      userId: "u1",
+      plan: plan([{ kind: "send_slack_message", target: { loopId: "l1" } }]),
+      effects: effects({ escalateToApproval }),
+      classifyActionZone: () => "cross_scope_internal",
+    });
+    expect(res.terminal).toBe("cancelled");
+    expect(escalateToApproval).not.toHaveBeenCalled();
+  });
+
+  it("zone-aware (Wave 3): Slack send to in_scope → needs_approval (escalates)", async () => {
+    const res = await executeAutomationRun({
+      userId: "u1",
+      plan: plan([{ kind: "send_slack_message", target: { loopId: "l1" } }]),
+      effects: effects(),
+      classifyActionZone: () => "in_scope",
+    });
+    expect(res.terminal).toBe("needs_approval");
+  });
 });
