@@ -889,6 +889,13 @@ export const entities = pgTable(
     mergedIntoIdx: index("entities_merged_into_idx").on(table.mergedIntoEntityId),
     orgIdx: index("entities_org_idx").on(table.orgId),
     scopeIdx: index("entities_scope_idx").on(table.scopeId),
+    // Wave 0.3: org-canonical uniqueness over ACTIVE (non-merged) rows (soft-merge).
+    orgCanonicalEmailActiveIdx: uniqueIndex("entities_org_canonical_email_active_unique")
+      .on(table.orgId, table.canonicalEmail)
+      .where(sql`canonical_email IS NOT NULL AND merged_into_entity_id IS NULL`),
+    orgCompanyDomainActiveIdx: uniqueIndex("entities_org_company_domain_active_unique")
+      .on(table.orgId, sql`((metadata ->> 'domain'))`)
+      .where(sql`kind = 'company' AND merged_into_entity_id IS NULL`),
   }),
 );
 
