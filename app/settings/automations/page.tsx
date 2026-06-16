@@ -11,8 +11,8 @@ import { and, desc, eq } from "drizzle-orm";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
-import { standingGrants, userIdentities } from "@/db/schema";
-import { buildRecipeCatalog, grantRowViewModel } from "@/automation/automations-view";
+import { automationRuns, standingGrants, userIdentities } from "@/db/schema";
+import { automationRunRowViewModel, buildRecipeCatalog, grantRowViewModel } from "@/automation/automations-view";
 import { cardClass, compactPrimaryButtonClass, labelClass, mutedClass, secondaryButtonClass, statusBadgeVariants } from "../_ui";
 import { enableAutomation, revokeAutomation } from "./actions";
 
@@ -52,6 +52,20 @@ export default async function AutomationsPage() {
   const grants = grantRows.map((g) => ({ ...grantRowViewModel(g, now), id: g.id }));
   const liveRecipeKeys = new Set(grants.filter((g) => g.live).map((g) => g.recipeKey));
   const catalog = buildRecipeCatalog();
+
+  const runRows = await getDb()
+    .select({
+      id: automationRuns.id,
+      recipeKey: automationRuns.recipeKey,
+      status: automationRuns.status,
+      startedAt: automationRuns.startedAt,
+      provenance: automationRuns.provenance,
+    })
+    .from(automationRuns)
+    .where(eq(automationRuns.userId, userId))
+    .orderBy(desc(automationRuns.createdAt))
+    .limit(20);
+  const runs = runRows.map(automationRunRowViewModel);
 
   return (
     <div className={cardClass}>
@@ -96,6 +110,41 @@ export default async function AutomationsPage() {
                     </form>
                   ) : null}
                 </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Recent runs */}
+      <section className="mb-8" data-testid="recent-runs">
+        <h3 className={`mb-3 ${labelClass}`}>Recent runs</h3>
+        {runs.length === 0 ? (
+          <p className={`text-[15px] ${mutedClass}`} data-testid="no-runs">
+            No automation runs yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {runs.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center justify-between gap-3 rounded-[4px] border border-[#DEDED8] px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <span className="text-[15px] font-semibold text-[#14140F]">{r.recipeName}</span>
+                  {r.detail ? <p className={`truncate text-[13px] ${mutedClass}`}>{r.detail}</p> : null}
+                </div>
+                <span
+                  className={`keeps-mono inline-flex h-7 shrink-0 items-center rounded-[4px] px-2.5 text-[11px] uppercase ${
+                    r.status === "completed"
+                      ? statusBadgeVariants.active
+                      : r.status === "failed"
+                        ? statusBadgeVariants.error
+                        : statusBadgeVariants.none
+                  }`}
+                >
+                  {r.status}
+                </span>
               </li>
             ))}
           </ul>

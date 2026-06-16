@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRecipeCatalog, grantRowViewModel } from "@/automation/automations-view";
+import { automationRunRowViewModel, buildRecipeCatalog, grantRowViewModel } from "@/automation/automations-view";
 
 describe("buildRecipeCatalog", () => {
   it("returns all 4 recipes with disclosure fields", () => {
@@ -54,5 +54,34 @@ describe("grantRowViewModel", () => {
     expect(grantRowViewModel({ recipeKey: "ghost", status: "active", expiresAt: null }, NOW).recipeName).toBe(
       "ghost",
     );
+  });
+});
+
+describe("automationRunRowViewModel", () => {
+  it("maps a run row; provenance.line → detail", () => {
+    const vm = automationRunRowViewModel({
+      id: "r1",
+      recipeKey: "stale_loop_followup",
+      status: "completed",
+      startedAt: new Date("2026-06-16T09:00:00Z"),
+      provenance: { line: "No activity for 7 days." },
+    });
+    expect(vm.recipeName).toBe("Stale-loop follow-up draft");
+    expect(vm.status).toBe("completed");
+    expect(vm.detail).toBe("No activity for 7 days.");
+    expect(vm.startedAt).toBe("2026-06-16T09:00:00.000Z");
+  });
+
+  it("skipped run → detail shows the skip reason; unknown recipe → key fallback", () => {
+    const vm = automationRunRowViewModel({
+      id: "r2",
+      recipeKey: "ghost",
+      status: "skipped",
+      startedAt: null,
+      provenance: { skipReason: "quiet hours" },
+    });
+    expect(vm.recipeName).toBe("ghost");
+    expect(vm.detail).toBe("skipped: quiet hours");
+    expect(vm.startedAt).toBeNull();
   });
 });

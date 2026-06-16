@@ -80,3 +80,34 @@ export function grantRowViewModel(
     live: grant.status === "active" && !expired,
   };
 }
+
+export type RunRowVM = {
+  id: string;
+  recipeName: string;
+  status: string;
+  startedAt: string | null;
+  /** One-line "why" (provenance) or skip reason — never raw evidence. */
+  detail: string;
+};
+
+/** Project an automation_runs row into a run-history row. PURE. */
+export function automationRunRowViewModel(run: {
+  id: string;
+  recipeKey: string;
+  status: string;
+  startedAt: Date | null;
+  provenance: unknown;
+}): RunRowVM {
+  const def = RECIPE_KEYS.includes(run.recipeKey as RecipeKey)
+    ? RECIPE_REGISTRY[run.recipeKey as RecipeKey]
+    : null;
+  const prov = (run.provenance as { line?: string; skipReason?: string } | null) ?? {};
+  const detail = prov.line ?? (prov.skipReason ? `skipped: ${prov.skipReason}` : "");
+  return {
+    id: run.id,
+    recipeName: def?.displayName ?? run.recipeKey,
+    status: run.status,
+    startedAt: run.startedAt ? run.startedAt.toISOString() : null,
+    detail,
+  };
+}
