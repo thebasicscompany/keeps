@@ -23,6 +23,7 @@ import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-fe
 import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-connector-failure";
 import { sweepReconciliationMetricsFunction } from "@/workflows/functions/sweep-reconciliation-metrics";
 import { sweepSuppressedTimeoutFunction } from "@/workflows/functions/sweep-suppressed-timeout";
+import { sweepStaleLoopsFunction } from "@/workflows/functions/sweep-stale-loops";
 import { handleAutomationTriggerFunction } from "@/workflows/functions/handle-automation-trigger";
 import { handleAutomationRunFunction } from "@/workflows/functions/handle-automation-run";
 
@@ -62,7 +63,8 @@ export const { GET, POST, PUT } = serve({
     // Phase V2 Wave A: reconciliation observability + suppressed-duplicate timeout promotion
     sweepReconciliationMetricsFunction,
     sweepSuppressedTimeoutFunction,
-    // Org-visibility Wave 3: automation planner (automation.triggered -> plan) + executor
+    // Org-visibility Wave 3: stale-loop sweep -> planner (automation.triggered -> plan) -> executor
+    sweepStaleLoopsFunction,
     handleAutomationTriggerFunction,
     handleAutomationRunFunction,
   ],
