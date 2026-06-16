@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import { upsertClerkUserAndClaimInbound } from "@/auth/clerk-users";
+import { syncClerkOrgMembership, removeClerkOrgMembership } from "@/auth/clerk-orgs";
+import { isOrgVisibilityEnabled } from "@/config/env";
 
 // Sentry scope tagging — guard so it is harmless without a DSN.
 function tagSentryWebhookScope(eventType: string): void {
@@ -59,11 +61,46 @@ export async function POST(request: Request) {
       await handleUserUpdated(event.data);
       return NextResponse.json({ handled: "user.updated" }, { status: 200 });
     }
+    case "organizationMembership.created":
+    case "organizationMembership.updated": {
+      if (isOrgVisibilityEnabled()) await handleOrgMembershipUpserted(event.data as OrgMembershipData);
+      return NextResponse.json({ handled: event.type }, { status: 200 });
+    }
+    case "organizationMembership.deleted": {
+      if (isOrgVisibilityEnabled()) await handleOrgMembershipDeleted(event.data as OrgMembershipData);
+      return NextResponse.json({ handled: event.type }, { status: 200 });
+    }
     default: {
       // Acknowledge but ignore — Clerk only retries on non-2xx, so a 200 stops redelivery.
       return NextResponse.json({ ignored: event.type }, { status: 200 });
     }
   }
+}
+
+// Clerk's organization-membership payload (not re-exported from the webhooks entrypoint).
+type OrgMembershipData = {
+  organization?: { id?: string; name?: string };
+  public_user_data?: { user_id?: string };
+  role?: string;
+};
+
+async function handleOrgMembershipUpserted(data: OrgMembershipData): Promise<void> {
+  const clerkOrgId = data.organization?.id;
+  const clerkUserId = data.public_user_data?.user_id;
+  if (!clerkOrgId || !clerkUserId) return;
+  await syncClerkOrgMembership({
+    clerkOrgId,
+    orgName: data.organization?.name ?? "",
+    clerkUserId,
+    clerkRole: data.role,
+  });
+}
+
+async function handleOrgMembershipDeleted(data: OrgMembershipData): Promise<void> {
+  const clerkOrgId = data.organization?.id;
+  const clerkUserId = data.public_user_data?.user_id;
+  if (!clerkOrgId || !clerkUserId) return;
+  await removeClerkOrgMembership({ clerkOrgId, clerkUserId });
 }
 
 async function handleUserCreated(data: UserEventData): Promise<void> {

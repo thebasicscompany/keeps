@@ -17,6 +17,7 @@ import { getOptionalEnv, isOrgVisibilityEnabled } from "@/config/env";
 import { linkLoopEntities } from "@/entities/link";
 import { loadExtractionContext } from "@/agent/extraction-context";
 import type { ViewerScope } from "@/visibility/can-view";
+import { resolveActiveOrgScope } from "@/visibility/load-scope";
 import { normalizeEmail } from "@/entities/resolve";
 import type {
   LoopProcessingRepository,
@@ -111,6 +112,13 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     // is idempotent (onConflictDoNothing), so the A2 backfill re-links anything skipped here.
     const linkJobs: Array<{ loopId: string; candidate: LoopToPersist }> = [];
 
+    // Wave 6: stamp new loops with the user's ACTIVE org + org_root scope (flag-gated) so a
+    // teammate can see them via canView/visibleLoopFilter. Resolved once, outside the txn. Flag
+    // off / no membership → null → loops stay unstamped (legacy per-user behavior, owner-visible).
+    const activeScope = isOrgVisibilityEnabled()
+      ? await resolveActiveOrgScope({ userId: input.email.userId })
+      : null;
+
     const persisted = await this.db.transaction(async (tx) => {
       const result: PersistedLoop[] = [];
 
@@ -155,6 +163,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
             confidence: candidate.confidence,
             participants: candidate.participants,
             ambiguityFlags: candidate.ambiguityFlags,
+            ...(activeScope ? { orgId: activeScope.orgId, scopeId: activeScope.rootScopeId } : {}),
           })
           .returning({
             id: loops.id,
