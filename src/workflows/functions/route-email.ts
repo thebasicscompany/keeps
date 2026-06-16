@@ -1,6 +1,7 @@
 import {
   classifyEmailIntent,
   classifyInsightCommand,
+  detectInsightCommand,
   type EmailIntent,
 } from "@/agent/classify-intent";
 import type { ApprovalRepository } from "@/approvals/repository";
@@ -320,6 +321,40 @@ async function runInsightCommandBranch(
   // no tracked participant and the model could not resolve it): send a clarification
   // reply instead of generating a wrong/empty report.
   if (classification.kind === "unknown") {
+    // GAP 3 (Phase 7 recall): the deterministic detector may have matched an entity
+    // shape that classifyInsightCommand could not map to a tracked participant. Before
+    // clarifying, try resolving that raw candidate against the entity graph — a
+    // graph-known entity with no loop-participant footprint should still produce a real
+    // entity report. A null resolution still falls through to clarify (never hallucinate).
+    const detected = detectInsightCommand(body);
+    if (detected?.kind === "entity" && detected.entityCandidate && deps.findEntityByQuery) {
+      const entityCandidate = detected.entityCandidate;
+      const resolved = await deps.findEntityByQuery({
+        userId: email.userId,
+        query: entityCandidate,
+      });
+      if (resolved) {
+        const entityReportRequested: KeepsWorkflowEvent = {
+          name: "report.requested",
+          data: {
+            userId: email.userId,
+            kind: "entity",
+            scope: { entity: entityCandidate, entityId: resolved.id },
+            requestedVia: "email_command",
+            inboundEmailId: email.id,
+          },
+        };
+        return {
+          status: "processed",
+          intent: "command",
+          branch: "insight_command",
+          events: [classified, entityReportRequested],
+          loops: [],
+          nudgeId: null,
+        };
+      }
+    }
+
     const suggestions = knownParticipants.slice(0, 3);
     const reply =
       suggestions.length > 0

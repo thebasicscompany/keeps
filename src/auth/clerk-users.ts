@@ -1,6 +1,7 @@
 import { getDb } from "@/db/client";
 import { auditLog, userIdentities, users } from "@/db/schema";
-import { getOptionalEnv } from "@/config/env";
+import { getOptionalEnv, isOrgVisibilityEnabled } from "@/config/env";
+import { ensurePersonalOrg } from "@/visibility/personal-org";
 import { normalizeIdentityEmail } from "@/email/address";
 import {
   claimHeldInboundEmailsForUser,
@@ -100,6 +101,16 @@ export async function upsertClerkUserAndClaimInbound(
       email: normalizedEmail,
     },
   });
+
+  // Org-visibility: give a new signup a personal org so their data is org-scoped + visible to them
+  // (the degenerate solo case). Idempotent; flag-gated so it's inert until org-visibility is on.
+  if (isOrgVisibilityEnabled()) {
+    try {
+      await ensurePersonalOrg({ userId: user.id, db });
+    } catch (err) {
+      console.error("[clerk-users] ensurePersonalOrg failed; user created without org", err);
+    }
+  }
 
   if (verified) {
     await db.insert(auditLog).values({

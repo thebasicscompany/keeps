@@ -322,6 +322,9 @@ export type EntityReportLoop = {
   emailThreadId: string;
   createdAtIso: string;
   updatedAtIso: string;
+  /** Exact source quote backing this loop (gated at render; "" if none). */
+  sourceQuote: string;
+  sourceEvidenceId: string;
 };
 
 export type EntityReportEvent = {
@@ -377,7 +380,7 @@ export async function assembleEntityReport(input: {
 
   // Lazy imports — getDb() must never run at module load (NODE test env has no DB).
   const { and, desc, eq, inArray, or } = await import("drizzle-orm");
-  const { entities, loopEntities, loopEvents, loops } = await import("@/db/schema");
+  const { entities, loopEntities, loopEvents, loops, sourceEvidence } = await import("@/db/schema");
   let db = input.db;
   if (!db) {
     const { getDb } = await import("@/db/client");
@@ -472,6 +475,8 @@ export async function assembleEntityReport(input: {
     emailThreadId: string;
     createdAt: Date;
     updatedAt: Date;
+    sourceQuote: string | null;
+    sourceEvidenceId: string | null;
   }> = await db
     .select({
       id: loops.id,
@@ -482,8 +487,11 @@ export async function assembleEntityReport(input: {
       emailThreadId: loops.emailThreadId,
       createdAt: loops.createdAt,
       updatedAt: loops.updatedAt,
+      sourceQuote: sourceEvidence.quote,
+      sourceEvidenceId: loops.sourceEvidenceId,
     })
     .from(loops)
+    .leftJoin(sourceEvidence, eq(loops.sourceEvidenceId, sourceEvidence.id))
     .where(and(eq(loops.userId, userId), inArray(loops.id, loopIds)));
 
   const visibleLoops = loopRows.filter((l) => l.status !== "suppressed");
@@ -498,6 +506,8 @@ export async function assembleEntityReport(input: {
     emailThreadId: l.emailThreadId,
     createdAtIso: toIso(l.createdAt),
     updatedAtIso: toIso(l.updatedAt),
+    sourceQuote: l.sourceQuote ?? "",
+    sourceEvidenceId: l.sourceEvidenceId ?? "",
   });
 
   const byRecency = (a: EntityReportLoop, b: EntityReportLoop) =>
@@ -587,8 +597,8 @@ export function entitySliceToSections(slice: EntityReportSlice, now: Date): Repo
       dueAt: l.dueAtIso ? new Date(l.dueAtIso) : null,
       confidence: l.confidence,
       participants: [],
-      sourceQuote: "",
-      sourceEvidenceId: "",
+      sourceQuote: l.sourceQuote,
+      sourceEvidenceId: l.sourceEvidenceId,
       createdAt: new Date(l.createdAtIso),
       updatedAt: new Date(l.updatedAtIso),
     },

@@ -21,6 +21,11 @@ import { sendExportEmailFunction } from "@/workflows/functions/send-export-email
 import { scoreNudgeFeedbackFunction } from "@/workflows/functions/score-nudge-feedback";
 import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-feedback";
 import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-connector-failure";
+import { sweepReconciliationMetricsFunction } from "@/workflows/functions/sweep-reconciliation-metrics";
+import { sweepSuppressedTimeoutFunction } from "@/workflows/functions/sweep-suppressed-timeout";
+import { sweepStaleLoopsFunction } from "@/workflows/functions/sweep-stale-loops";
+import { handleAutomationTriggerFunction } from "@/workflows/functions/handle-automation-trigger";
+import { handleAutomationRunFunction } from "@/workflows/functions/handle-automation-run";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -55,5 +60,12 @@ export const { GET, POST, PUT } = serve({
     scoreDraftFeedbackFunction,
     // Phase 6 C3: connector failure alerting (connector.action_failed subscriber)
     notifyConnectorFailureFunction,
+    // Phase V2 Wave A: reconciliation observability + suppressed-duplicate timeout promotion
+    sweepReconciliationMetricsFunction,
+    sweepSuppressedTimeoutFunction,
+    // Org-visibility Wave 3: stale-loop sweep -> planner (automation.triggered -> plan) -> executor
+    sweepStaleLoopsFunction,
+    handleAutomationTriggerFunction,
+    handleAutomationRunFunction,
   ],
 });

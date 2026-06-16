@@ -9,6 +9,9 @@ import {
   decideReconciliation,
   type ReconcileDecision,
 } from "@/agent/reconcile";
+import type { ViewerScope } from "@/visibility/can-view";
+import { loadViewerScope } from "@/visibility/load-scope";
+import { isOrgVisibilityEnabled } from "@/config/env";
 
 export const highConfidenceLoopThreshold = 0.7;
 
@@ -170,6 +173,8 @@ export type LoopProcessingRepository = {
     threadId: string | null;
     participants: { name: string | null; email: string | null }[];
     queryText: string | null;
+    /** Wave 1 (org-visibility): when present, candidates scope to canView(viewer, loop). */
+    viewerScope?: ViewerScope;
   }): Promise<OpenLoopContext>;
   /**
    * Phase 7 B2b — write a reconciliation provenance loop_event (AR-9). Used for
@@ -654,11 +659,19 @@ async function loadCaptureContext(
   const snippet = normalizedBody.slice(0, 200);
   const queryText = `${email.normalized.subject} ${snippet}`.trim();
 
+  // Wave 1: when org-visibility is enabled, scope the candidate set to what the mailbox owner
+  // (the viewer) is authorized to see — not just their own rows. Flag off (or no membership) →
+  // viewerScope stays undefined and the legacy per-user path runs unchanged.
+  const viewerScope = isOrgVisibilityEnabled()
+    ? ((await loadViewerScope({ userId: email.userId })) ?? undefined)
+    : undefined;
+
   return repository.loadOpenLoopContext({
     userId: email.userId,
     threadId: email.emailThreadId,
     participants,
     queryText: queryText.length > 0 ? queryText : null,
+    viewerScope,
   });
 }
 

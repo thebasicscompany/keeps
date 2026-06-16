@@ -7,14 +7,16 @@ import {
   loopEvents,
   loops,
   nudges,
+  orgMemberships,
   sourceEvidence,
   users,
 } from "@/db/schema";
 import type { LoopStatus } from "@/agent/schemas";
 import type { NormalizedEmail, NormalizedEmailAddress, NormalizedAttachment } from "@/email/normalize";
-import { getOptionalEnv } from "@/config/env";
+import { getOptionalEnv, isOrgVisibilityEnabled } from "@/config/env";
 import { linkLoopEntities } from "@/entities/link";
 import { loadExtractionContext } from "@/agent/extraction-context";
+import type { ViewerScope } from "@/visibility/can-view";
 import { normalizeEmail } from "@/entities/resolve";
 import type {
   LoopProcessingRepository,
@@ -25,6 +27,7 @@ import type {
   PrivateReplyNudgeMetadata,
   ProcessableInboundEmail,
 } from "@/loops/service";
+import { mutateLoopState } from "@/loops/service";
 
 const commandableStatuses: LoopStatus[] = ["candidate", "open", "snoozed", "waiting_on_me", "waiting_on_other"];
 
@@ -216,6 +219,22 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         (value): value is string => Boolean(value),
       );
 
+      // Wave 1b: resolve the user's org once (flag-gated) so entity linking creates org-canonical
+      // person rows. Flag off / no membership → undefined → legacy per-user resolution.
+      let orgId: string | undefined;
+      if (isOrgVisibilityEnabled()) {
+        try {
+          const [membership] = await this.db
+            .select({ orgId: orgMemberships.orgId })
+            .from(orgMemberships)
+            .where(eq(orgMemberships.userId, input.email.userId))
+            .limit(1);
+          orgId = membership?.orgId ?? undefined;
+        } catch (err) {
+          console.error("[entity-link] orgId lookup failed; proceeding per-user", err);
+        }
+      }
+
       for (const job of linkJobs) {
         try {
           await linkLoopEntities({
@@ -227,6 +246,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
             sender: input.email.normalized.from,
             selfEmail,
             agentEmails,
+            orgId,
           });
         } catch (err) {
           console.error(`[entity-link] failed for loop ${job.loopId}; left unlinked`, err);
@@ -425,6 +445,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
     threadId: string | null;
     participants: { name: string | null; email: string | null }[];
     queryText: string | null;
+    viewerScope?: ViewerScope;
   }): Promise<OpenLoopContext> {
     // Reuse B3's retrieval (DB-injected). It already resolves participant
     // entities internally, but does not expose their ids — so we resolve the
@@ -436,6 +457,7 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
         threadId: input.threadId,
         participants: input.participants,
         queryText: input.queryText,
+        viewerScope: input.viewerScope,
       },
       this.db,
     );
@@ -465,7 +487,10 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
   async recordReconciliationEvent(input: {
     userId: string;
     loopId: string;
-    eventType: "reconciled" | "reconcile_suggested";
+    // 'superseded' is written when the user (or the timeout sweep) resolves a
+    // suppressed duplicate; the DB enum + the port type already allow it — this
+    // impl param was the only place that omitted it (Wave A GAP 1).
+    eventType: "reconciled" | "reconcile_suggested" | "superseded";
     metadata: Record<string, unknown>;
   }): Promise<void> {
     await this.db.insert(loopEvents).values({
@@ -473,6 +498,80 @@ export class DrizzleLoopProcessingRepository implements LoopProcessingRepository
       loopId: input.loopId,
       eventType: input.eventType,
       metadata: input.metadata,
+    });
+  }
+
+  /**
+   * Wave A GAP 1 — suppressed duplicates whose latest `reconcile_suggested` ask
+   * went unanswered before `olderThan`. Read-only; the suppressed-timeout sweep
+   * promotes these so no commitment is silently lost. Keeps only the LATEST ask
+   * per loop, then filters by the cutoff.
+   */
+  async listSuppressedAwaitingConfirm(input: {
+    userId?: string;
+    olderThan: Date;
+  }): Promise<Array<{ loopId: string; userId: string; suggestedAt: Date; candidateLoopId: string | null }>> {
+    const rows = await this.db
+      .select({
+        loopId: loops.id,
+        userId: loops.userId,
+        createdAt: loopEvents.createdAt,
+        metadata: loopEvents.metadata,
+      })
+      .from(loops)
+      .innerJoin(
+        loopEvents,
+        and(eq(loopEvents.loopId, loops.id), eq(loopEvents.eventType, "reconcile_suggested")),
+      )
+      .where(
+        and(
+          eq(loops.status, "suppressed"),
+          input.userId ? eq(loops.userId, input.userId) : undefined,
+        ),
+      );
+
+    const latestByLoop = new Map<
+      string,
+      { loopId: string; userId: string; suggestedAt: Date; candidateLoopId: string | null }
+    >();
+    for (const row of rows) {
+      const existing = latestByLoop.get(row.loopId);
+      if (!existing || row.createdAt > existing.suggestedAt) {
+        const meta = (row.metadata ?? {}) as { candidateLoopId?: unknown };
+        latestByLoop.set(row.loopId, {
+          loopId: row.loopId,
+          userId: row.userId,
+          suggestedAt: row.createdAt,
+          candidateLoopId: typeof meta.candidateLoopId === "string" ? meta.candidateLoopId : null,
+        });
+      }
+    }
+    return [...latestByLoop.values()].filter((r) => r.suggestedAt < input.olderThan);
+  }
+
+  /**
+   * Wave A — promote a long-unanswered suppressed duplicate to an independent
+   * open loop through the canonical mutation funnel, then record reconciliation
+   * provenance. NEVER dismisses (fail toward keeping the commitment).
+   */
+  async promoteSuppressedLoop(input: {
+    loopId: string;
+    userId: string;
+    commandText: string;
+  }): Promise<void> {
+    await mutateLoopState({
+      userId: input.userId,
+      loopId: input.loopId,
+      action: "confirm",
+      commandText: input.commandText,
+      source: "auto_reconcile",
+      repository: this,
+    });
+    await this.recordReconciliationEvent({
+      userId: input.userId,
+      loopId: input.loopId,
+      eventType: "reconciled",
+      metadata: { keptSeparate: true, autoPromotedOnTimeout: true },
     });
   }
 

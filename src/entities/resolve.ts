@@ -22,6 +22,13 @@ export type ResolveEntityInput = {
   userId: string;
   name: string | null;
   email: string | null;
+  /**
+   * Wave 1b (org-visibility): when present, person email resolution is ORG-canonical — a mention
+   * of jane@acme.com finds the org's existing canonical row regardless of which member captured
+   * it, and new rows are stamped with org_id. When ABSENT, the legacy per-user path runs
+   * unchanged. The caller supplies this only when ORG_VISIBILITY_ENABLED is on.
+   */
+  orgId?: string;
 };
 
 type Db = ReturnType<typeof getDb>;
@@ -290,12 +297,12 @@ async function touchEntitySeen(entity: Entity, name: string | null, db: Db): Pro
  */
 export async function resolveEntity(input: ResolveEntityInput, db?: Db): Promise<Entity> {
   const database = db ?? getDb();
-  const { userId, name, email } = input;
+  const { userId, name, email, orgId } = input;
 
   const normalizedEmail = normalizeEmail(email);
 
   if (normalizedEmail) {
-    return resolveByEmail({ userId, name, normalizedEmail }, database);
+    return resolveByEmail({ userId, name, normalizedEmail, orgId }, database);
   }
 
   // An email was SUPPLIED but could not be safely normalized into a merge key (quoted
@@ -305,10 +312,10 @@ export async function resolveEntity(input: ResolveEntityInput, db?: Db): Promise
   // the raw address and NEVER name-matches.
   const rawEmail = email?.trim().toLowerCase();
   if (rawEmail) {
-    return resolveByUnnormalizableEmail({ userId, name, rawEmail }, database);
+    return resolveByUnnormalizableEmail({ userId, name, rawEmail, orgId }, database);
   }
 
-  return resolveByNameOnly({ userId, name }, database);
+  return resolveByNameOnly({ userId, name, orgId }, database);
 }
 
 /**
@@ -318,7 +325,7 @@ export async function resolveEntity(input: ResolveEntityInput, db?: Db): Promise
  * trustworthy merge key. NEVER name-matches.
  */
 async function resolveByUnnormalizableEmail(
-  { userId, name, rawEmail }: { userId: string; name: string | null; rawEmail: string },
+  { userId, name, rawEmail, orgId }: { userId: string; name: string | null; rawEmail: string; orgId?: string },
   db: Db,
 ): Promise<Entity> {
   const [existing] = await db
@@ -343,6 +350,7 @@ async function resolveByUnnormalizableEmail(
     .insert(entities)
     .values({
       userId,
+      orgId,
       kind: "person",
       displayName: name?.trim() || rawEmail,
       canonicalEmail: null,
@@ -363,15 +371,22 @@ async function resolveByEmail(
     userId,
     name,
     normalizedEmail,
-  }: { userId: string; name: string | null; normalizedEmail: string },
+    orgId,
+  }: { userId: string; name: string | null; normalizedEmail: string; orgId?: string },
   db: Db,
 ): Promise<Entity> {
-  // Attempt lookup by (userId, canonicalEmail)
-  const [existing] = await db
-    .select()
-    .from(entities)
-    .where(and(eq(entities.userId, userId), eq(entities.canonicalEmail, normalizedEmail)))
-    .limit(1);
+  // Wave 1b: org-canonical lookup (active rows only) when an org is supplied, else legacy per-user.
+  // The org branch makes a mention of jane@acme.com resolve to the ORG's existing canonical row,
+  // regardless of which member is capturing it.
+  const lookupWhere = orgId
+    ? and(
+        eq(entities.orgId, orgId),
+        eq(entities.canonicalEmail, normalizedEmail),
+        isNull(entities.mergedIntoEntityId),
+      )
+    : and(eq(entities.userId, userId), eq(entities.canonicalEmail, normalizedEmail));
+
+  const [existing] = await db.select().from(entities).where(lookupWhere).limit(1);
 
   if (existing) {
     const canonical = await followMergeChain(existing, db);
@@ -387,6 +402,7 @@ async function resolveByEmail(
 
   const newEntity: NewEntity = {
     userId,
+    orgId, // stamped when org-scoped; undefined → NULL (legacy row, pre-org)
     kind: isRole ? "other" : "person",
     displayName,
     canonicalEmail: normalizedEmail,
@@ -394,30 +410,30 @@ async function resolveByEmail(
     metadata: isRole ? { roleMailbox: true } : {},
   };
 
+  // Arbiter: the org-active partial index when org-scoped, else the per-user email index.
+  // Both are PARTIAL, so the matching WHERE must be passed so Postgres infers the arbiter.
   const [inserted] = await db
     .insert(entities)
     .values(newEntity)
-    // Handle unique-constraint race: if another process just inserted the same
-    // (userId, canonicalEmail), do nothing and re-SELECT below.
-    // The unique index is a PARTIAL index (WHERE canonical_email IS NOT NULL),
-    // so we must pass the matching WHERE clause via `where` for Postgres to
-    // correctly infer the arbiter index.
-    .onConflictDoNothing({
-      target: [entities.userId, entities.canonicalEmail],
-      where: isNotNull(entities.canonicalEmail),
-    })
+    .onConflictDoNothing(
+      orgId
+        ? {
+            target: [entities.orgId, entities.canonicalEmail],
+            where: sql`canonical_email IS NOT NULL AND merged_into_entity_id IS NULL`,
+          }
+        : {
+            target: [entities.userId, entities.canonicalEmail],
+            where: isNotNull(entities.canonicalEmail),
+          },
+    )
     .returning();
 
   if (inserted) {
     return inserted;
   }
 
-  // Race: another insert won — re-SELECT and return that row
-  const [raced] = await db
-    .select()
-    .from(entities)
-    .where(and(eq(entities.userId, userId), eq(entities.canonicalEmail, normalizedEmail)))
-    .limit(1);
+  // Race: another insert won — re-SELECT (same scope) and return that row.
+  const [raced] = await db.select().from(entities).where(lookupWhere).limit(1);
 
   if (!raced) {
     throw new Error(
@@ -432,7 +448,7 @@ async function resolveByEmail(
 }
 
 async function resolveByNameOnly(
-  { userId, name }: { userId: string; name: string | null },
+  { userId, name, orgId }: { userId: string; name: string | null; orgId?: string },
   db: Db,
 ): Promise<Entity> {
   const nameTrimmed = name?.trim() ?? null;
@@ -483,6 +499,7 @@ async function resolveByNameOnly(
 
   const newEntity: NewEntity = {
     userId,
+    orgId,
     kind: "person",
     displayName,
     canonicalEmail: null,

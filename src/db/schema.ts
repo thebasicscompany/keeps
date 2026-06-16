@@ -77,6 +77,24 @@ export const auditActionEnum = pgEnum("audit_action", [
   "data.delete_completed",
   "user.deleted",
   "failed_processing.replayed",
+  // Phase V2 (Wave B) — standing grants + automation runs (append-only; same order as migration 0020)
+  "standing_grant.requested",
+  "standing_grant.created",
+  "standing_grant.activated",
+  "standing_grant.paused",
+  "standing_grant.revoked",
+  "standing_grant.expired",
+  "automation.triggered",
+  "automation.planned",
+  "automation.skipped",
+  "automation.needs_approval",
+  "automation.executing",
+  "automation.completed",
+  "automation.failed",
+  "automation.cancelled",
+  "automation.action_executed",
+  "automation.action_denied",
+  "policy.standing_grant_denied",
 ]);
 
 export const pendingInboundStatusEnum = pgEnum("pending_inbound_status", ["pending", "claimed"]);
@@ -407,6 +425,8 @@ export const sourceEvidence = pgTable(
     endOffset: integer("end_offset"),
     metadata: jsonb("metadata").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Wave 0 (org-visibility): NULLABLE until backfill.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
   },
   (table) => ({
     userIdx: index("source_evidence_user_idx").on(table.userId),
@@ -450,9 +470,14 @@ export const loops = pgTable(
     // Phase 7: entity graph links (owner_text/requester_text kept as provenance fallback)
     ownerEntityId: uuid("owner_entity_id").references(() => entities.id, { onDelete: "set null" }),
     requesterEntityId: uuid("requester_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    // Wave 0 (org-visibility): NULLABLE until backfill; a later migration tightens org_id to NOT NULL.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
+    scopeId: uuid("scope_id").references((): AnyPgColumn => scopes.id, { onDelete: "set null" }),
   },
   (table) => ({
     userStatusIdx: index("loops_user_status_idx").on(table.userId, table.status),
+    orgIdx: index("loops_org_idx").on(table.orgId),
+    scopeIdx: index("loops_scope_idx").on(table.scopeId),
     inboundEmailIdx: index("loops_inbound_email_idx").on(table.inboundEmailId),
     sourceEvidenceIdx: index("loops_source_evidence_idx").on(table.sourceEvidenceId),
     ownerEntityIdx: index("loops_owner_entity_idx").on(table.ownerEntityId),
@@ -847,6 +872,10 @@ export const entities = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Wave 0 (org-visibility): NULLABLE until backfill. Entity canonicalization (0022) flips the
+    // per-user unique indexes below to per-org — that is the destructive, review-gated step.
+    orgId: uuid("org_id").references((): AnyPgColumn => organizations.id, { onDelete: "cascade" }),
+    scopeId: uuid("scope_id").references((): AnyPgColumn => scopes.id, { onDelete: "set null" }),
   },
   (table) => ({
     canonicalEmailIdx: uniqueIndex("entities_user_canonical_email_unique")
@@ -858,6 +887,15 @@ export const entities = pgTable(
       .where(sql`kind = 'company'`),
     userKindIdx: index("entities_user_kind_idx").on(table.userId, table.kind),
     mergedIntoIdx: index("entities_merged_into_idx").on(table.mergedIntoEntityId),
+    orgIdx: index("entities_org_idx").on(table.orgId),
+    scopeIdx: index("entities_scope_idx").on(table.scopeId),
+    // Wave 0.3: org-canonical uniqueness over ACTIVE (non-merged) rows (soft-merge).
+    orgCanonicalEmailActiveIdx: uniqueIndex("entities_org_canonical_email_active_unique")
+      .on(table.orgId, table.canonicalEmail)
+      .where(sql`canonical_email IS NOT NULL AND merged_into_entity_id IS NULL`),
+    orgCompanyDomainActiveIdx: uniqueIndex("entities_org_company_domain_active_unique")
+      .on(table.orgId, sql`((metadata ->> 'domain'))`)
+      .where(sql`kind = 'company' AND merged_into_entity_id IS NULL`),
   }),
 );
 
@@ -883,6 +921,258 @@ export const loopEntities = pgTable(
     ),
     entityIdx: index("loop_entities_entity_idx").on(table.entityId),
     loopIdx: index("loop_entities_loop_idx").on(table.loopId),
+  }),
+);
+
+// ── Wave 0 (Org-Visibility Re-Founding): tenancy + canView relationship graph ──
+export const orgMemberRoleEnum = pgEnum("org_member_role", ["owner", "admin", "member"]);
+export const scopeKindEnum = pgEnum("scope_kind", ["org_root", "deal", "account", "team"]);
+export const visibilityRelationEnum = pgEnum("visibility_relation", [
+  "org_admin",
+  "manager_of",
+  "scope_member",
+  "explicit_share",
+]);
+export const visibilityObjectTypeEnum = pgEnum("visibility_object_type", [
+  "org",
+  "user",
+  "scope",
+  "loop",
+  "entity",
+]);
+
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Mirrors a Clerk Organization (already used for billing). NULL for a personal org. */
+    clerkOrgId: text("clerk_org_id"),
+    name: text("name").notNull().default(""),
+    /** A personal org is the degenerate single-member case (the old per-user behavior). */
+    isPersonal: boolean("is_personal").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clerkOrgIdIdx: uniqueIndex("organizations_clerk_org_id_unique")
+      .on(table.clerkOrgId)
+      .where(sql`clerk_org_id IS NOT NULL`),
+  }),
+);
+
+export const orgMemberships = pgTable(
+  "org_memberships",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: orgMemberRoleEnum("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUserUnique: uniqueIndex("org_memberships_org_user_unique").on(table.orgId, table.userId),
+    userIdx: index("org_memberships_user_idx").on(table.userId),
+  }),
+);
+
+export const scopes = pgTable(
+  "scopes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: scopeKindEnum("kind").notNull().default("team"),
+    name: text("name").notNull().default(""),
+    /** Delegated scope owner: manages membership without full org admin. NULL = admin-only. */
+    ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("scopes_org_idx").on(table.orgId),
+  }),
+);
+
+/**
+ * Relation tuples the canView resolver unions over (Zanzibar-style). subject_user_id is
+ * empowered to see object_id, interpreted per object_type (org_admin→org, manager_of→user,
+ * scope_member→scope, explicit_share→loop|entity). revoked_at IS NULL = active; revocation
+ * is immediate (the active partial index excludes revoked rows).
+ */
+export const visibilityEdges = pgTable(
+  "visibility_edges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    subjectUserId: uuid("subject_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    relation: visibilityRelationEnum("relation").notNull(),
+    objectType: visibilityObjectTypeEnum("object_type").notNull(),
+    objectId: uuid("object_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    subjectActiveIdx: index("visibility_edges_subject_active_idx")
+      .on(table.subjectUserId, table.orgId)
+      .where(sql`revoked_at IS NULL`),
+    tupleUnique: uniqueIndex("visibility_edges_tuple_unique").on(
+      table.subjectUserId,
+      table.relation,
+      table.objectType,
+      table.objectId,
+    ),
+  }),
+);
+
+// ── Phase V2 (Wave B): standing grants + automation run ledger ────────────────
+export const standingGrantStatusEnum = pgEnum("standing_grant_status", [
+  "pending",
+  "active",
+  "paused",
+  "revoked",
+  "expired",
+]);
+export const automationRunStatusEnum = pgEnum("automation_run_status", [
+  "planned",
+  "skipped",
+  "needs_approval",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export const automationRunActionStatusEnum = pgEnum("automation_run_action_status", [
+  "planned",
+  "needs_approval",
+  "executing",
+  "completed",
+  "failed",
+  "cancelled",
+  "skipped",
+]);
+export const automationTriggerKindEnum = pgEnum("automation_trigger_kind", [
+  "calendar_event",
+  "loop_stale",
+  "explicit_command",
+  "cron",
+]);
+
+export const standingGrants = pgTable(
+  "standing_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    recipeKey: text("recipe_key").notNull(),
+    status: standingGrantStatusEnum("status").notNull().default("pending"),
+    scope: jsonb("scope").notNull().default({}),
+    allowedActionKinds: jsonb("allowed_action_kinds").notNull().default([]),
+    blockedActionKinds: jsonb("blocked_action_kinds").notNull().default([]),
+    constraints: jsonb("constraints").notNull().default({}),
+    caps: jsonb("caps").notNull().default({}),
+    quietHours: jsonb("quiet_hours").notNull().default({}),
+    createdFromApprovalRequestId: uuid("created_from_approval_request_id").references(
+      () => approvalRequests.id,
+      { onDelete: "set null" },
+    ),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("standing_grants_user_status_idx").on(table.userId, table.status),
+    userRecipeStatusIdx: index("standing_grants_user_recipe_status_idx").on(
+      table.userId,
+      table.recipeKey,
+      table.status,
+    ),
+    activeExpiryIdx: index("standing_grants_active_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`status = 'active'`),
+  }),
+);
+
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    standingGrantId: uuid("standing_grant_id").references(() => standingGrants.id, {
+      onDelete: "set null",
+    }),
+    recipeKey: text("recipe_key").notNull(),
+    triggerKind: automationTriggerKindEnum("trigger_kind").notNull(),
+    triggerRef: text("trigger_ref"),
+    status: automationRunStatusEnum("status").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    inputSnapshot: jsonb("input_snapshot").notNull().default({}),
+    sandboxPlan: jsonb("sandbox_plan").notNull().default({}),
+    policyDecision: jsonb("policy_decision").notNull().default({}),
+    provenance: jsonb("provenance").notNull().default({}),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    executedAt: timestamp("executed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    idempotencyKeyUnique: uniqueIndex("automation_runs_idempotency_key_unique").on(
+      table.idempotencyKey,
+    ),
+    userCreatedIdx: index("automation_runs_user_created_idx").on(table.userId, table.createdAt),
+    userStatusIdx: index("automation_runs_user_status_idx").on(table.userId, table.status),
+    recipeStatusIdx: index("automation_runs_recipe_status_idx").on(table.recipeKey, table.status),
+    grantCreatedIdx: index("automation_runs_grant_created_idx").on(
+      table.standingGrantId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const automationRunActions = pgTable(
+  "automation_run_actions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    automationRunId: uuid("automation_run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    actionKind: text("action_kind").notNull(),
+    status: automationRunActionStatusEnum("status").notNull(),
+    target: jsonb("target").notNull().default({}),
+    payload: jsonb("payload").notNull().default({}),
+    policyDecision: jsonb("policy_decision").notNull().default({}),
+    connectorActionId: uuid("connector_action_id").references(() => connectorActions.id, {
+      onDelete: "set null",
+    }),
+    approvalRequestId: uuid("approval_request_id").references(() => approvalRequests.id, {
+      onDelete: "set null",
+    }),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runIdx: index("automation_run_actions_run_idx").on(table.automationRunId),
   }),
 );
 
@@ -937,3 +1227,29 @@ export type EntityKind = typeof entityKindEnum.enumValues[number];
 export type LoopEntity = typeof loopEntities.$inferSelect;
 export type NewLoopEntity = typeof loopEntities.$inferInsert;
 export type LoopEntityRole = typeof loopEntityRoleEnum.enumValues[number];
+
+// Phase V2 (Wave B) additions
+export type StandingGrant = typeof standingGrants.$inferSelect;
+export type NewStandingGrant = typeof standingGrants.$inferInsert;
+export type AutomationRun = typeof automationRuns.$inferSelect;
+export type NewAutomationRun = typeof automationRuns.$inferInsert;
+export type AutomationRunAction = typeof automationRunActions.$inferSelect;
+export type NewAutomationRunAction = typeof automationRunActions.$inferInsert;
+export type StandingGrantStatus = typeof standingGrantStatusEnum.enumValues[number];
+export type AutomationRunStatus = typeof automationRunStatusEnum.enumValues[number];
+export type AutomationRunActionStatus = typeof automationRunActionStatusEnum.enumValues[number];
+export type AutomationTriggerKind = typeof automationTriggerKindEnum.enumValues[number];
+
+// Wave 0 (org-visibility) type exports
+export type Organization = typeof organizations.$inferSelect;
+export type NewOrganization = typeof organizations.$inferInsert;
+export type OrgMembership = typeof orgMemberships.$inferSelect;
+export type NewOrgMembership = typeof orgMemberships.$inferInsert;
+export type Scope = typeof scopes.$inferSelect;
+export type NewScope = typeof scopes.$inferInsert;
+export type VisibilityEdge = typeof visibilityEdges.$inferSelect;
+export type NewVisibilityEdge = typeof visibilityEdges.$inferInsert;
+export type OrgMemberRole = typeof orgMemberRoleEnum.enumValues[number];
+export type ScopeKind = typeof scopeKindEnum.enumValues[number];
+export type VisibilityRelation = typeof visibilityRelationEnum.enumValues[number];
+export type VisibilityObjectType = typeof visibilityObjectTypeEnum.enumValues[number];
