@@ -55,15 +55,26 @@ describe("buildPostMeetingPrompt (Recipe 2)", () => {
 });
 
 describe("buildStaleLoopFollowup (Recipe 3)", () => {
-  it("private email + private report only (no external send by default)", () => {
+  it("private email + report auto, plus a self-DM Slack nudge that escalates (SR8)", () => {
     const plan = buildStaleLoopFollowup({
       userId: "u1",
       loop: { id: "l1", summary: "Acme renewal" },
       staleDays: 7,
     });
     const kinds = plan.intendedActions.map((a) => a.kind).sort();
-    expect(kinds).toEqual(["create_private_report", "send_private_email_to_user"]);
+    expect(kinds).toEqual(["create_private_report", "send_private_email_to_user", "send_slack_message"]);
     expect(plan.provenanceContext.loopSummary).toBe("Acme renewal");
+  });
+
+  it("the Slack nudge is fixed to a self-DM (never a third party) and carries the loop summary", () => {
+    const plan = buildStaleLoopFollowup({
+      userId: "u1",
+      loop: { id: "l1", summary: "Acme renewal" },
+      staleDays: 3,
+    });
+    const slack = plan.intendedActions.find((a) => a.kind === "send_slack_message")!;
+    expect((slack.target as { destination: { kind: string } }).destination.kind).toBe("self");
+    expect(String((slack.target as { message: string }).message)).toContain("Acme renewal");
   });
 });
 

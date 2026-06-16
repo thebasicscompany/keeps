@@ -1,5 +1,6 @@
 import type { ApprovalRequest, Draft } from "@/db/schema";
 import { testActionHandler } from "@/approvals/actions/test-action";
+import { sendSlackMessageHandler } from "@/approvals/actions/connector-actions";
 
 /**
  * The plug-in contract every approved action runs through. A handler receives the draft
@@ -28,3 +29,5 @@ export function getAction(actionKind: string): ActionHandler | undefined {
 }
 
 registerAction("test_action", testActionHandler);
+// Wave D approve→execute: an automation-escalated self-DM Slack message, executed on approval.
+registerAction("send_slack_message", sendSlackMessageHandler);
