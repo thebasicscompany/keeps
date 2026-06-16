@@ -11,10 +11,13 @@
  * decider-only state — mirroring assembleEntityReport's visibility rules.
  */
 
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { entities, loopEntities, loops } from "@/db/schema";
 import type { LoopStatus } from "@/agent/schemas";
+import { isOrgVisibilityEnabled } from "@/config/env";
+import { loadViewerScope } from "@/visibility/load-scope";
+import { visibleLoopFilter } from "@/visibility/visible-filter";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -71,27 +74,18 @@ function domainOf(kind: string, canonicalEmail: string | null, metadata: unknown
 export async function getUserGraph(userId: string, dbHandle?: Db): Promise<UserGraph> {
   const db = dbHandle ?? getDb();
 
-  // 1. Active (non-merged) entities for this user.
-  const rows = await db
-    .select({
-      id: entities.id,
-      displayName: entities.displayName,
-      kind: entities.kind,
-      canonicalEmail: entities.canonicalEmail,
-      metadata: entities.metadata,
-      firstSeenAt: entities.firstSeenAt,
-      lastSeenAt: entities.lastSeenAt,
-    })
-    .from(entities)
-    .where(and(eq(entities.userId, userId), isNull(entities.mergedIntoEntityId)));
+  // Visibility (Wave 6): when org-visibility is on, the graph shows every loop the viewer can SEE
+  // (their own + whole-org shared, via visibleLoopFilter / canView) and the entities those loops
+  // reference — so teammates' shared loops appear, and nothing across an org boundary ever does.
+  // Flag off (or no scope) → own loops only, byte-for-byte the legacy per-user graph.
+  // Loop-FIRST (vs entity-first): an entity surfaces only through an authorized loop, so this can
+  // never leak a contact the viewer isn't entitled to, and needs no cross-member entity merge.
+  const viewerScope = isOrgVisibilityEnabled()
+    ? await loadViewerScope({ userId, db: db as Parameters<typeof loadViewerScope>[0]["db"] })
+    : null;
+  const loopWhere: SQL = viewerScope ? visibleLoopFilter(viewerScope) : eq(loops.userId, userId);
 
-  if (rows.length === 0) {
-    return { companies: [], people: [], totals: { entities: 0, companies: 0, people: 0, openLoops: 0 } };
-  }
-
-  const entityIds = rows.map((r) => r.id);
-
-  // 2. Loop links (excluding the suppressed decider-only state).
+  // 1. Visible loop links (excluding the suppressed decider-only state).
   const links = await db
     .select({
       entityId: loopEntities.entityId,
@@ -104,7 +98,31 @@ export async function getUserGraph(userId: string, dbHandle?: Db): Promise<UserG
     })
     .from(loopEntities)
     .innerJoin(loops, eq(loops.id, loopEntities.loopId))
-    .where(and(inArray(loopEntities.entityId, entityIds), ne(loops.status, "suppressed")));
+    .where(and(loopWhere, ne(loops.status, "suppressed")));
+
+  if (links.length === 0) {
+    return { companies: [], people: [], totals: { entities: 0, companies: 0, people: 0, openLoops: 0 } };
+  }
+
+  const entityIds = [...new Set(links.map((l) => l.entityId))];
+
+  // 2. The (active, non-merged) entities those visible loops reference.
+  const rows = await db
+    .select({
+      id: entities.id,
+      displayName: entities.displayName,
+      kind: entities.kind,
+      canonicalEmail: entities.canonicalEmail,
+      metadata: entities.metadata,
+      firstSeenAt: entities.firstSeenAt,
+      lastSeenAt: entities.lastSeenAt,
+    })
+    .from(entities)
+    .where(and(inArray(entities.id, entityIds), isNull(entities.mergedIntoEntityId)));
+
+  if (rows.length === 0) {
+    return { companies: [], people: [], totals: { entities: 0, companies: 0, people: 0, openLoops: 0 } };
+  }
 
   // 3. Per-entity loop map (dedupe by loopId, union roles).
   type Acc = { loop: (typeof links)[number]; roles: Set<string> };

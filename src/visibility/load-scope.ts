@@ -9,7 +9,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db/client";
-import { orgMemberships, visibilityEdges } from "@/db/schema";
+import { orgMemberships, organizations, scopes, visibilityEdges } from "@/db/schema";
 import type * as schema from "@/db/schema";
 import type { OrgMemberRole, VisibilityEdge } from "@/db/schema";
 import type { ViewerScope } from "@/visibility/can-view";
@@ -66,15 +66,18 @@ export async function loadViewerScope(input: {
 }): Promise<ViewerScope | null> {
   const db = input.db ?? (getDb() as PostgresJsDatabase<typeof schema>);
 
+  // Join org so we can prefer a SHARED (non-personal) org over the personal one when no orgId is
+  // given — a user in a real team operates in the team's context, not their solo personal org.
   const memberships = await db
-    .select()
+    .select({ orgId: orgMemberships.orgId, role: orgMemberships.role, isPersonal: organizations.isPersonal })
     .from(orgMemberships)
+    .innerJoin(organizations, eq(organizations.id, orgMemberships.orgId))
     .where(eq(orgMemberships.userId, input.userId));
   if (memberships.length === 0) return null;
 
   const membership = input.orgId
     ? memberships.find((m) => m.orgId === input.orgId)
-    : memberships[0];
+    : (memberships.find((m) => !m.isPersonal) ?? memberships[0]);
   if (!membership) return null;
 
   const edges = await db
@@ -98,4 +101,32 @@ export async function loadViewerScope(input: {
     role: membership.role,
     edges,
   });
+}
+
+/**
+ * The org + org_root scope that NEW captures should be stamped with: the user's SHARED org if they
+ * belong to one (so teammates can see the capture via org_root), else their personal org. Null if
+ * the user has no membership or the org has no root scope (fail closed → leave the capture
+ * unstamped / per-user). Used by the capture path so new loops join the shared graph.
+ */
+export async function resolveActiveOrgScope(input: {
+  userId: string;
+  db?: PostgresJsDatabase<typeof schema>;
+}): Promise<{ orgId: string; rootScopeId: string } | null> {
+  const db = input.db ?? (getDb() as PostgresJsDatabase<typeof schema>);
+  const memberships = await db
+    .select({ orgId: orgMemberships.orgId, isPersonal: organizations.isPersonal })
+    .from(orgMemberships)
+    .innerJoin(organizations, eq(organizations.id, orgMemberships.orgId))
+    .where(eq(orgMemberships.userId, input.userId));
+  if (memberships.length === 0) return null;
+
+  const chosen = memberships.find((m) => !m.isPersonal) ?? memberships[0];
+  const [scope] = await db
+    .select({ id: scopes.id })
+    .from(scopes)
+    .where(and(eq(scopes.orgId, chosen.orgId), eq(scopes.kind, "org_root")))
+    .limit(1);
+  if (!scope) return null;
+  return { orgId: chosen.orgId, rootScopeId: scope.id };
 }
