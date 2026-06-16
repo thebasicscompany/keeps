@@ -87,12 +87,23 @@ export function buildStaleLoopFollowup(ctx: StaleLoopContext): RecipePlanInput {
     intendedActions: [
       { kind: "send_private_email_to_user", target: { userId: ctx.userId, loopId: ctx.loop.id } },
       { kind: "create_private_report", target: { loopId: ctx.loop.id } },
+      // SR8: an externally-visible Slack nudge is DRAFTED but never auto-sent — it escalates to
+      // your approval. V0 targets your OWN Slack (self-DM) so the demo can never message a third
+      // party; the destination is fixed to self by the builder, not the model.
+      {
+        kind: "send_slack_message",
+        target: {
+          destination: { kind: "self", nameText: null, emailText: null },
+          message: `Reminder to follow up: "${ctx.loop.summary}" — no activity for ${ctx.staleDays} day${ctx.staleDays === 1 ? "" : "s"}.`,
+          loopId: ctx.loop.id,
+        },
+      },
     ],
     provenanceContext: { loopSummary: ctx.loop.summary, staleDays: ctx.staleDays },
     contextUsed: { loopIds: [ctx.loop.id] },
     draft: {
       subject: `Follow-up draft: ${ctx.loop.summary}`,
-      body: `No activity for ${ctx.staleDays} days. Reply "done", "snooze 1 until Friday", or approve an external send.`,
+      body: `No activity for ${ctx.staleDays} days. Reply "done", "snooze 1 until Friday", or approve the Slack nudge.`,
     },
   };
 }
