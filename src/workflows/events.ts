@@ -313,6 +313,8 @@ export type EventMap = {
     triggerRef?: string;
     idempotencyKey: string;
     standingGrantId?: string;
+    /** Lean recipe params for the planner (ids/numbers/short strings only — never raw evidence). */
+    context?: Record<string, unknown>;
   };
   "automation.planned": {
     userId: string;

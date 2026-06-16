@@ -23,6 +23,7 @@ import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-fe
 import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-connector-failure";
 import { sweepReconciliationMetricsFunction } from "@/workflows/functions/sweep-reconciliation-metrics";
 import { sweepSuppressedTimeoutFunction } from "@/workflows/functions/sweep-suppressed-timeout";
+import { handleAutomationTriggerFunction } from "@/workflows/functions/handle-automation-trigger";
 import { handleAutomationRunFunction } from "@/workflows/functions/handle-automation-run";
 
 export const { GET, POST, PUT } = serve({
@@ -61,7 +62,8 @@ export const { GET, POST, PUT } = serve({
     // Phase V2 Wave A: reconciliation observability + suppressed-duplicate timeout promotion
     sweepReconciliationMetricsFunction,
     sweepSuppressedTimeoutFunction,
-    // Org-visibility Wave 3: automation executor (automation.planned -> execute the sandbox plan)
+    // Org-visibility Wave 3: automation planner (automation.triggered -> plan) + executor
+    handleAutomationTriggerFunction,
     handleAutomationRunFunction,
   ],
 });
