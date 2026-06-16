@@ -1,6 +1,6 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { auditLog, loops, users } from "@/db/schema";
+import { auditLog, entities, loops, users } from "@/db/schema";
 import { DrizzleApprovalRepository } from "@/approvals/repository";
 import { DrizzleDigestRepository } from "@/digests/repository";
 import { getEmailSender } from "@/email/sender-factory";
@@ -62,6 +62,20 @@ async function listTrackedParticipants(userId: string): Promise<string[]> {
       }
     }
   }
+
+  // Phase 7 GAP 4: also surface active entity-graph names/emails (not merged away),
+  // so entity-scoped insight commands and "did you mean…" clarification recognize
+  // people/companies that exist in the graph but aren't in any current loop's
+  // participants JSON.
+  const entityRows = await getDb()
+    .select({ displayName: entities.displayName, canonicalEmail: entities.canonicalEmail })
+    .from(entities)
+    .where(and(eq(entities.userId, userId), isNull(entities.mergedIntoEntityId)));
+  for (const entity of entityRows) {
+    if (entity.displayName?.trim()) names.add(entity.displayName.trim());
+    if (entity.canonicalEmail?.trim()) names.add(entity.canonicalEmail.trim());
+  }
+
   return [...names];
 }
 

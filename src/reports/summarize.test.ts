@@ -214,6 +214,8 @@ function makeEntityLoop(o: Partial<EntityReportLoop> & { id: string }): EntityRe
     emailThreadId: o.emailThreadId ?? `thread-${o.id}`,
     createdAtIso: o.createdAtIso ?? "2026-06-01T00:00:00.000Z",
     updatedAtIso: o.updatedAtIso ?? "2026-06-10T00:00:00.000Z",
+    sourceQuote: o.sourceQuote ?? "",
+    sourceEvidenceId: o.sourceEvidenceId ?? "",
   };
 }
 

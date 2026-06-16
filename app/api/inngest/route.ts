@@ -21,6 +21,8 @@ import { sendExportEmailFunction } from "@/workflows/functions/send-export-email
 import { scoreNudgeFeedbackFunction } from "@/workflows/functions/score-nudge-feedback";
 import { scoreDraftFeedbackFunction } from "@/workflows/functions/score-draft-feedback";
 import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-connector-failure";
+import { sweepReconciliationMetricsFunction } from "@/workflows/functions/sweep-reconciliation-metrics";
+import { sweepSuppressedTimeoutFunction } from "@/workflows/functions/sweep-suppressed-timeout";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -55,5 +57,8 @@ export const { GET, POST, PUT } = serve({
     scoreDraftFeedbackFunction,
     // Phase 6 C3: connector failure alerting (connector.action_failed subscriber)
     notifyConnectorFailureFunction,
+    // Phase V2 Wave A: reconciliation observability + suppressed-duplicate timeout promotion
+    sweepReconciliationMetricsFunction,
+    sweepSuppressedTimeoutFunction,
   ],
 });
