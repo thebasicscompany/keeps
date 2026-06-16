@@ -13,7 +13,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { orgMemberships, organizations, userIdentities, users } from "@/db/schema";
-import { cardClass, labelClass, mutedClass, statusBadgeVariants } from "../_ui";
+import { cardClass, compactPrimaryButtonClass, labelClass, mutedClass, secondaryButtonClass, statusBadgeVariants } from "../_ui";
+import { syncMyClerkOrgs } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,15 @@ export default async function TeamPage() {
           ), your team shares one graph: everyone sees each other’s loops and contacts, and nothing
           ever crosses to another organization.
         </p>
+        <p className={`mt-4 text-[13px] ${mutedClass}`}>
+          Already have an organization in Clerk? Pull it in now (new orgs sync automatically going
+          forward):
+        </p>
+        <form action={syncMyClerkOrgs} className="mt-2">
+          <button type="submit" className={compactPrimaryButtonClass} data-testid="sync-orgs">
+            Sync my organizations
+          </button>
+        </form>
       </div>
     );
   }
@@ -104,6 +114,11 @@ export default async function TeamPage() {
         <p className={`mt-4 text-[12px] ${mutedClass}`}>
           Members are managed in Clerk (Billing → Manage organization). Changes sync here automatically.
         </p>
+        <form action={syncMyClerkOrgs} className="mt-3">
+          <button type="submit" className={`${secondaryButtonClass} !h-9 !px-3 !text-xs`} data-testid="resync-orgs">
+            Re-sync from Clerk
+          </button>
+        </form>
       </section>
     </div>
   );
