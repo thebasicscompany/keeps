@@ -29,10 +29,6 @@ describe.skipIf(!TEST_DATABASE_URL)("mergeEntitiesInOrg (soft-merge, DB integrat
   let lateEntity: string;
 
   beforeAll(async () => {
-    // The merge backfill runs BEFORE migration 0022 adds the per-org active-unique index — so to
-    // create the legacy duplicate state, drop that index for this test (restored by re-applying 0022).
-    await sql.unsafe('DROP INDEX IF EXISTS "entities_org_canonical_email_active_unique"');
-
     const [a] = await db.insert(users).values({ email: `a-${RUN}@x.com`, displayName: "A" }).returning({ id: users.id });
     userA = a.id;
     const [b] = await db.insert(users).values({ email: `b-${RUN}@x.com`, displayName: "B" }).returning({ id: users.id });
@@ -42,7 +38,10 @@ describe.skipIf(!TEST_DATABASE_URL)("mergeEntitiesInOrg (soft-merge, DB integrat
     await db.insert(orgMemberships).values({ orgId, userId: userA, role: "owner" });
     await db.insert(orgMemberships).values({ orgId, userId: userB, role: "member" });
 
-    // Two person entities, SAME canonical_email, different owners, both active in the org.
+    // Two person entities that NORMALIZE to the same email but differ by case in the raw column —
+    // so both are "active" (the case-sensitive per-org unique index permits them) yet the planner
+    // (which normalizes) groups them. This models legacy duplicate data WITHOUT touching the shared
+    // index, keeping the test parallel-safe.
     const [e1] = await db
       .insert(entities)
       .values({
@@ -62,7 +61,7 @@ describe.skipIf(!TEST_DATABASE_URL)("mergeEntitiesInOrg (soft-merge, DB integrat
         orgId,
         kind: "person",
         displayName: "Jane (B)",
-        canonicalEmail: `jane-${RUN}@acme.com`,
+        canonicalEmail: `JANE-${RUN}@acme.com`,
         firstSeenAt: new Date("2026-02-01T00:00:00Z"),
       })
       .returning({ id: entities.id });
