@@ -14,71 +14,9 @@
  * the planner that emits the event; this function is harmless if no planned runs exist.
  */
 import { inngest } from "@/workflows/client";
-import { getDb } from "@/db/client";
-import { users } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { executeAutomationRun } from "@/automation/executor";
 import { DrizzleAutomationRunRepository } from "@/automation/run-repository";
-import type { IntendedAction, SandboxPlan } from "@/automation/sandbox-plan";
-import { sendSystemEmail } from "@/email/system-send";
-import { getEmailSender } from "@/email/sender-factory";
-import { createReport } from "@/reports/service";
-import { DrizzleReportsRepository } from "@/reports/repository";
-import { createApprovalRequest } from "@/approvals/service";
-import { DrizzleApprovalRepository } from "@/approvals/repository";
-import { startOfLocalDay } from "@/users/timezone";
-
-async function loadOwnerEmail(userId: string): Promise<string | null> {
-  const [row] = await getDb().select({ email: users.email }).from(users).where(eq(users.id, userId)).limit(1);
-  return row?.email ?? null;
-}
-
-/** PRIVATE action dispatch — only kinds that never leave the user's boundary. */
-async function runPrivateAutomationAction(
-  action: IntendedAction,
-  plan: SandboxPlan,
-  userId: string,
-): Promise<Record<string, unknown>> {
-  if (action.kind === "send_private_email_to_user") {
-    const ownerEmail = await loadOwnerEmail(userId);
-    if (!ownerEmail) return { skipped: "no_owner_email" };
-    const subject = plan.generatedContent?.subject ?? "Keeps";
-    const textBody = `${plan.generatedContent?.body ?? ""}\n\n— ${plan.provenanceLine}`;
-    const { providerMessageId } = await sendSystemEmail({
-      email: { to: ownerEmail, subject, textBody },
-      sender: getEmailSender(),
-    });
-    return { sent: true, providerMessageId };
-  }
-  if (action.kind === "create_private_report") {
-    const { reportId } = await createReport({
-      userId,
-      kind: "insights",
-      scope: action.target,
-      summary: plan.generatedContent?.subject ?? "Automation report",
-      requestedVia: "automation_recipe",
-      repository: new DrizzleReportsRepository(),
-    });
-    return { reportId };
-  }
-  return { skipped: `unsupported_private_kind_${action.kind}` };
-}
-
-/** SR8 escalation — create a per-run approval; the action is NEVER auto-executed here. */
-async function escalateAutomationAction(
-  action: IntendedAction,
-  userId: string,
-): Promise<{ approvalRequestId: string }> {
-  const { request } = await createApprovalRequest({
-    userId,
-    draft: { actionKind: action.kind, payload: action.target },
-    now: new Date(),
-    repository: new DrizzleApprovalRepository(),
-    // This function owns the run; suppress the generic approval.requested broadcast.
-    emitEvent: async () => {},
-  });
-  return { approvalRequestId: request.id };
-}
+import { buildDrizzleExecutorEffects } from "@/automation/dispatch";
 
 export const handleAutomationRunFunction = inngest.createFunction(
   {
@@ -105,16 +43,13 @@ export const handleAutomationRunFunction = inngest.createFunction(
         plan: run.sandboxPlan,
         userId: run.userId,
         now,
-        effects: {
-          loadFreshGrant: () =>
-            run.standingGrantId ? repo.loadGrantContext(run.standingGrantId) : Promise.resolve(null),
-          loadCapUsage: () =>
-            run.standingGrantId
-              ? repo.countCapUsage(run.standingGrantId, startOfLocalDay("UTC", now))
-              : Promise.resolve({}),
-          runPrivateAction: (action) => runPrivateAutomationAction(action, run.sandboxPlan, run.userId),
-          escalateToApproval: (action) => escalateAutomationAction(action, run.userId),
-        },
+        effects: buildDrizzleExecutorEffects({
+          repo,
+          standingGrantId: run.standingGrantId,
+          userId: run.userId,
+          plan: run.sandboxPlan,
+          now,
+        }),
       });
 
       await repo.updateRunStatus(automationRunId, exec.terminal, {

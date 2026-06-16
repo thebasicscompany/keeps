@@ -9,38 +9,12 @@
  * Idempotent via the Inngest fn `idempotency` key AND the unique automation_runs.idempotency_key
  * (insertRun ON CONFLICT DO NOTHING). Calendar recipes (pre/post-meeting) await the calendar sweep.
  */
-import { eq, and } from "drizzle-orm";
 import { inngest } from "@/workflows/client";
-import { getDb } from "@/db/client";
-import { loops } from "@/db/schema";
 import { DrizzleAutomationRunRepository, type InsertRunInput } from "@/automation/run-repository";
 import { planAutomationRun } from "@/automation/planner";
-import { buildStaleLoopFollowup, type RecipePlanInput } from "@/automation/recipes/builders";
+import { buildPlanInputForRecipe } from "@/automation/plan-input";
 import { startOfLocalDay } from "@/users/timezone";
 import type { SandboxPlan } from "@/automation/sandbox-plan";
-
-/**
- * Load the recipe's context (by triggerRef + lean event context) and build its plan input.
- * Returns null when the recipe should not fire (e.g. context gone) or isn't wired yet.
- */
-async function buildPlanInputForRecipe(
-  recipeKey: string,
-  ctx: { userId: string; triggerRef?: string; context?: Record<string, unknown> },
-): Promise<RecipePlanInput | null> {
-  if (recipeKey === "stale_loop_followup") {
-    if (!ctx.triggerRef) return null;
-    const [loop] = await getDb()
-      .select({ id: loops.id, summary: loops.summary })
-      .from(loops)
-      .where(and(eq(loops.id, ctx.triggerRef), eq(loops.userId, ctx.userId)))
-      .limit(1);
-    if (!loop) return null;
-    const staleDays = typeof ctx.context?.staleDays === "number" ? ctx.context.staleDays : 7;
-    return buildStaleLoopFollowup({ userId: ctx.userId, loop, staleDays });
-  }
-  // pre_meeting_brief / post_meeting_prompt need calendar-read (calendar sweep) — not wired yet.
-  return null;
-}
 
 export const handleAutomationTriggerFunction = inngest.createFunction(
   {
@@ -65,12 +39,14 @@ export const handleAutomationTriggerFunction = inngest.createFunction(
       const grant = standingGrantId ? await repo.loadGrantContext(standingGrantId) : null;
       if (!grant) return { status: "skipped" as const, reason: "no_active_grant" };
 
-      const built = await buildPlanInputForRecipe(recipeKey, {
+      const builtResult = await buildPlanInputForRecipe(recipeKey, {
         userId,
         triggerRef: triggerRef ?? undefined,
         context,
+        now,
       });
-      if (!built) return { status: "skipped" as const, reason: "recipe_not_applicable" };
+      if (!builtResult.ok) return { status: "skipped" as const, reason: builtResult.reason };
+      const built = builtResult.input;
 
       const capUsage = standingGrantId
         ? await repo.countCapUsage(standingGrantId, startOfLocalDay("UTC", now))

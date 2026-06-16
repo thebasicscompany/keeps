@@ -8,13 +8,14 @@
  */
 import { auth } from "@clerk/nextjs/server";
 import { and, desc, eq } from "drizzle-orm";
+import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { automationRuns, standingGrants, userIdentities } from "@/db/schema";
 import { automationRunRowViewModel, buildRecipeCatalog, grantRowViewModel } from "@/automation/automations-view";
 import { cardClass, compactPrimaryButtonClass, labelClass, mutedClass, secondaryButtonClass, statusBadgeVariants } from "../_ui";
-import { enableAutomation, revokeAutomation } from "./actions";
+import { enableAutomation, revokeAutomation, runAutomationNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,12 @@ async function resolveInternalUserId(): Promise<string | null> {
   return identity?.userId ?? null;
 }
 
-export default async function AutomationsPage() {
+export default async function AutomationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ notice?: string }>;
+}) {
+  const { notice } = await searchParams;
   const userId = await resolveInternalUserId();
   if (!userId) {
     redirect("/sign-in?redirect_url=/settings/automations" as Route);
@@ -78,6 +84,15 @@ export default async function AutomationsPage() {
           act on anything outside what you can see.
         </p>
       </div>
+
+      {notice ? (
+        <div
+          className="mb-6 rounded-[4px] border border-[#DEDED8] bg-[#F4F4F0] px-4 py-3 text-[14px] text-[#14140F]"
+          data-testid="run-notice"
+        >
+          {notice}
+        </div>
+      ) : null}
 
       {/* Active grants */}
       <section className="mb-8" data-testid="active-grants">
@@ -126,25 +141,27 @@ export default async function AutomationsPage() {
         ) : (
           <ul className="space-y-2">
             {runs.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-center justify-between gap-3 rounded-[4px] border border-[#DEDED8] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <span className="text-[15px] font-semibold text-[#14140F]">{r.recipeName}</span>
-                  {r.detail ? <p className={`truncate text-[13px] ${mutedClass}`}>{r.detail}</p> : null}
-                </div>
-                <span
-                  className={`keeps-mono inline-flex h-7 shrink-0 items-center rounded-[4px] px-2.5 text-[11px] uppercase ${
-                    r.status === "completed"
-                      ? statusBadgeVariants.active
-                      : r.status === "failed"
-                        ? statusBadgeVariants.error
-                        : statusBadgeVariants.none
-                  }`}
+              <li key={r.id}>
+                <Link
+                  href={`/settings/automations/runs/${r.id}` as Route}
+                  className="flex items-center justify-between gap-3 rounded-[4px] border border-[#DEDED8] px-4 py-3 transition-colors hover:border-[#14140F]"
                 >
-                  {r.status}
-                </span>
+                  <div className="min-w-0">
+                    <span className="text-[15px] font-semibold text-[#14140F]">{r.recipeName}</span>
+                    {r.detail ? <p className={`truncate text-[13px] ${mutedClass}`}>{r.detail}</p> : null}
+                  </div>
+                  <span
+                    className={`keeps-mono inline-flex h-7 shrink-0 items-center rounded-[4px] px-2.5 text-[11px] uppercase ${
+                      r.status === "completed"
+                        ? statusBadgeVariants.active
+                        : r.status === "failed"
+                          ? statusBadgeVariants.error
+                          : statusBadgeVariants.none
+                    }`}
+                  >
+                    {r.status}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -193,13 +210,20 @@ export default async function AutomationsPage() {
               <div className={`mt-3 text-[12px] ${mutedClass}`}>
                 <span className="font-semibold text-[#14140F]">Reads:</span> {r.reads.join("; ")}
               </div>
-              <div className="mt-4">
+              <div className="mt-4 flex items-center gap-3">
                 {liveRecipeKeys.has(r.key) ? (
-                  <span
-                    className={`keeps-mono inline-flex h-9 items-center rounded-[4px] px-3 text-[11px] uppercase ${statusBadgeVariants.active}`}
-                  >
-                    Enabled
-                  </span>
+                  <>
+                    <span
+                      className={`keeps-mono inline-flex h-9 items-center rounded-[4px] px-3 text-[11px] uppercase ${statusBadgeVariants.active}`}
+                    >
+                      Enabled
+                    </span>
+                    <form action={runAutomationNowAction.bind(null, r.key)}>
+                      <button type="submit" className={compactPrimaryButtonClass} data-testid={`run-now-${r.key}`}>
+                        Run now
+                      </button>
+                    </form>
+                  </>
                 ) : (
                   <form action={enableAutomation.bind(null, r.key)}>
                     <button type="submit" className={compactPrimaryButtonClass}>
