@@ -32,7 +32,8 @@ export type ModelCallPurpose =
   | "draft_slack"
   | "draft_calendar"
   | "summarize_report"
-  | "summarize_entity";
+  | "summarize_entity"
+  | "recipe_draft";
 
 // ---------------------------------------------------------------------------
 // Types
