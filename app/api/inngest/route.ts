@@ -24,6 +24,7 @@ import { notifyConnectorFailureFunction } from "@/workflows/functions/notify-con
 import { sweepReconciliationMetricsFunction } from "@/workflows/functions/sweep-reconciliation-metrics";
 import { sweepSuppressedTimeoutFunction } from "@/workflows/functions/sweep-suppressed-timeout";
 import { sweepStaleLoopsFunction } from "@/workflows/functions/sweep-stale-loops";
+import { sweepPreMeetingFunction, sweepPostMeetingFunction } from "@/workflows/functions/sweep-calendar-recipes";
 import { handleAutomationTriggerFunction } from "@/workflows/functions/handle-automation-trigger";
 import { handleAutomationRunFunction } from "@/workflows/functions/handle-automation-run";
 
@@ -65,6 +66,9 @@ export const { GET, POST, PUT } = serve({
     sweepSuppressedTimeoutFunction,
     // Org-visibility Wave 3: stale-loop sweep -> planner (automation.triggered -> plan) -> executor
     sweepStaleLoopsFunction,
+    // Wave D: autonomous calendar triggers (every 10 min) for pre/post-meeting recipes
+    sweepPreMeetingFunction,
+    sweepPostMeetingFunction,
     handleAutomationTriggerFunction,
     handleAutomationRunFunction,
   ],
